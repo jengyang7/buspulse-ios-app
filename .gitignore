@@ -30,3 +30,11 @@ Thumbs.db
 
 # Vite
 *.local
+
+# Xcode / Swift
+xcuserdata/
+*.xcuserstate
+*.xcscmblueprint
+DerivedData/
+*.moved-aside
+.swiftpm/
