@@ -148,11 +148,17 @@ export default function App() {
   const [theme, setTheme] = useState("dark");
   const [lang, setLang] = useState("en");
   const [notif, setNotif] = useState(true);
+  const [minimized, setMinimized] = useState(false);
+  const [queueOrigin, setQueueOrigin] = useState("live");
+  const [profileName, setProfileName] = useState("Jayden Kong");
+  const [profileEmail, setProfileEmail] = useState("jayden@busqueue.app");
+  const [editingProfile, setEditingProfile] = useState(false);
   const [authMode, setAuthMode] = useState("signin");
   const [authEmail, setAuthEmail] = useState("");
   const [authPw, setAuthPw] = useState("");
   const [authPw2, setAuthPw2] = useState("");
   const timerRef = useRef(null);
+  const touchStartRef = useRef(null);
   const tr = (k, n) => { const s = T[lang][k] ?? T.en[k]; return typeof s === "function" ? s(n) : s; };
   const h = new Date().getHours();
   const greet = h < 5 ? "Good night" : h < 12 ? "Good morning" : h < 17 ? "Good afternoon" : h < 21 ? "Good evening" : "Good night";
@@ -162,14 +168,21 @@ export default function App() {
   const totalReports = (TILES[locId] || []).reduce((a, t) => a + t.reports, 0);
 
   useEffect(() => {
-    if (view === "track") { timerRef.current = setInterval(() => setElapsed((e) => e + 1), 1000); return () => clearInterval(timerRef.current); }
-  }, [view]);
+    if (active) { timerRef.current = setInterval(() => setElapsed((e) => e + 1), 1000); return () => clearInterval(timerRef.current); }
+  }, [active]);
 
   const changeDir = (d) => { setDir(d); setLocId(firstOf(d)); setPickerOpen(false); };
   const openDetail = (t) => { setDetail(t); setView("detail"); };
-  const startQueue = (t) => { setActive(t); setElapsed(0); setView("track"); setTab("track"); };
-  const board = () => { clearInterval(timerRef.current); setView("done"); };
-  const reset = () => { setActive(null); setDetail(null); setElapsed(0); setView("live"); setTab("live"); };
+  const goBack = () => { setDetail(null); setView("live"); setTab("live"); };
+  const startQueue = (t) => { setActive(t); setElapsed(0); setMinimized(false); setQueueOrigin(view); setView("track"); setTab("track"); };
+  const board = () => { setView("done"); };
+  const reset = () => { setActive(null); setDetail(null); setElapsed(0); setMinimized(false); setQueueOrigin("live"); setView("live"); setTab("live"); };
+  const minimize = () => {
+    setMinimized(true);
+    if (queueOrigin === "detail" && detail) { setView("detail"); }
+    else { setQueueOrigin("live"); setView("live"); setTab("live"); }
+  };
+  const quickQueue = (t) => { setActive(t); setElapsed(0); setMinimized(true); setQueueOrigin("live"); setView("live"); setTab("live"); };
 
   const est = active ? Math.round((active.lo + active.hi) / 2) : 0;
   const estSec = est * 60;
@@ -190,13 +203,23 @@ export default function App() {
           {/* ── LIVE ─────────────────────────────────────── */}
           {view === "live" && (
             <div className={`body${tab === "live" ? " livetab" : ""}`}>
-              <header className="head">
-                <div className="headrow">
-                  <div className="logo">Bus<span>Queue</span></div>
-                  <div className="streak">🔥 3</div>
-                </div>
-                <div className="greeting">{greet}, Jayden</div>
-              </header>
+              {tab === "live" ? (
+                <header className="head">
+                  <div className="headrow">
+                    <div>
+                      <div className="logo">Bus<span>Queue</span></div>
+                      <div className="greeting">{greet}, Jayden</div>
+                    </div>
+                    <div className="streak">🌿 {REWARD_PTS.toLocaleString()}</div>
+                  </div>
+                </header>
+              ) : (
+                <header className="thead tabhead">
+                  <span style={{ width: 34 }} />
+                  <span className="ttitle">{tab === "stats" ? tr("statsTab") : "Profile"}</span>
+                  <span style={{ width: 34 }} />
+                </header>
+              )}
 
               {tab === "live" && (
                 <>
@@ -223,7 +246,7 @@ export default function App() {
 
                   <div className="freshrow"><span className="livedot" /> {tr("live", totalReports)}</div>
 
-                  <div className="listscroll">
+                  <div className="listscroll" style={{ paddingBottom: minimized && active ? 160 : 92 }}>
                     <div className="list">
                       {tiles.map((t, i) => (
                         <div key={t.id} className="route" role="button" tabIndex={0} style={{ animationDelay: `${i * 70}ms` }} onClick={() => openDetail(t)}>
@@ -237,7 +260,7 @@ export default function App() {
                               <span className="next">{tr("nextBus")} {t.next}m</span>
                               <span className="routefeed">{liveRecorders(t)} timing now · updated {t.fresh}m ago</span>
                             </div>
-                            <button className="quick" title={tr("startQueue")} onClick={(e) => { e.stopPropagation(); openDetail(t); }}>
+                            <button className={`quick${active ? " qgray" : ""}`} title={tr("startQueue")} onClick={(e) => { e.stopPropagation(); if (!active) quickQueue(t); }}>
                               <span className="qicon" aria-hidden="true">
                                 <svg width="14" height="14" viewBox="0 0 24 24"><path d="M8 5v14l11-7z" fill="currentColor" /></svg>
                               </span>
@@ -252,7 +275,7 @@ export default function App() {
                 </>
               )}
               {tab === "stats" && <Stats defaultLocId={locId} />}
-              {tab === "profile" && <Profile />}
+              {tab === "profile" && <Profile name={profileName} email={profileEmail} />}
             </div>
           )}
 
@@ -262,9 +285,26 @@ export default function App() {
               <header className="thead"><span style={{ width: 34 }} /><span className="ttitle">{tr("settings")}</span><span style={{ width: 34 }} /></header>
 
               <div className="setcard account">
-                <div className="avatar">JK</div>
-                <div className="ainfo"><div className="aname">Jayden Kong</div><div className="aemail">jayden@busqueue.app</div></div>
-                <div className="prochip">PRO</div>
+                <div className="avatar">{profileName.split(" ").map(n => n[0]).join("").slice(0, 2).toUpperCase()}</div>
+                <div className="ainfo" style={{ flex: 1 }}>
+                  {editingProfile ? (
+                    <>
+                      <input className="authinput setinput" value={profileName} onChange={(e) => setProfileName(e.target.value)} placeholder="Display name" />
+                      <input className="authinput setinput" type="email" value={profileEmail} onChange={(e) => setProfileEmail(e.target.value)} placeholder="Email" style={{ marginTop: 6 }} />
+                    </>
+                  ) : (
+                    <>
+                      <div className="aname">{profileName}</div>
+                      <div className="aemail">{profileEmail}</div>
+                    </>
+                  )}
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 6, flexShrink: 0 }}>
+                  {editingProfile
+                    ? <button className="savebtn" onClick={() => setEditingProfile(false)}>Save</button>
+                    : <button className="editbtn" onClick={() => setEditingProfile(true)}>Edit</button>
+                  }
+                </div>
               </div>
 
               <div className="setlabel">{tr("language")}</div>
@@ -283,6 +323,7 @@ export default function App() {
               <div className="setlist">
                 <div className="setrow"><span>🔔 {tr("notifications")}</span><button className={`toggle ${notif ? "on" : ""}`} onClick={() => setNotif(!notif)}><i /></button></div>
                 <div className="setrow"><span>📍 {tr("locationAccess")}</span><button className="toggle on"><i /></button></div>
+                <div className="setrow"><span>📡 Auto-detect boarding</span><button className={`toggle ${gps ? "on" : ""}`} onClick={() => setGps(!gps)}><i /></button></div>
               </div>
 
               <button className="logout" onClick={() => { setAuthEmail(""); setAuthPw(""); setAuthPw2(""); setView("auth"); }}>{tr("logout")}</button>
@@ -295,7 +336,7 @@ export default function App() {
             const sp = spark(detail), mx = Math.max(...sp);
             return (
               <div className="body detail">
-                <header className="thead"><button className="back" onClick={reset}>←</button><span className="ttitle">{tr("routeDetails")}</span><span style={{ width: 34 }} /></header>
+                <header className="thead"><button className="back" onClick={goBack}>←</button><span className="ttitle">{tr("routeDetails")}</span><span style={{ width: 34 }} /></header>
                 <div className="hero">
                   <Badge tile={detail} lg />
                   <div className="herobig" style={{ color: CROWD[detail.crowd].c }}>{detail.lo}–{detail.hi}<small>min</small></div>
@@ -320,7 +361,9 @@ export default function App() {
                   <div className="sparkhead">Recent reported waits <span>last 30 min · newest →</span></div>
                   <div className="sparkrow">{sp.map((v, i) => <div key={i} className="sbar" style={{ height: `${(v / mx) * 100}%`, background: i === sp.length - 1 ? CROWD[detail.crowd].c : "var(--line)", animationDelay: `${i * 45}ms` }} />)}</div>
                 </div>
-                <button className="board" onClick={() => startQueue(detail)}>{tr("startQueue")}</button>
+                <button className={`board${active ? " boarddim" : ""}`} disabled={!!active} onClick={() => !active && startQueue(detail)}>
+                  {active ? `Queuing ${active.badge} now` : tr("startQueue")}
+                </button>
                 <button className="leave">🔔 Notify me when queue drops below 10m</button>
               </div>
             );
@@ -328,8 +371,18 @@ export default function App() {
 
           {/* ── TRACK ────────────────────────────────────── */}
           {view === "track" && active && (
-            <div className="body track">
-              <header className="thead"><button className="back" onClick={reset}>✕</button><span className="ttitle">{tr("queuingNow")}</span><span className="livedot big" /></header>
+            <div className="body track"
+              onTouchStart={(e) => { touchStartRef.current = e.touches[0].clientY; }}
+              onTouchEnd={(e) => { if (touchStartRef.current !== null && e.changedTouches[0].clientY - touchStartRef.current > 80) minimize(); touchStartRef.current = null; }}
+            >
+              <button className="draghandle" onClick={minimize} aria-label="Minimize" />
+              <header className="thead">
+                <span style={{ width: 34, display: "flex", alignItems: "center" }}><span className="livedot big" /></span>
+                <span className="ttitle">{tr("queuingNow")}</span>
+                <button className="closebtn" onClick={minimize} aria-label="Minimize">
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><path d="M6 9l6 6 6-6"/></svg>
+                </button>
+              </header>
               <div className="ringwrap">
                 <svg viewBox="0 0 220 220" className="ring">
                   <circle className="ringtrack" cx="110" cy="110" r="96" strokeWidth="10" fill="none" />
@@ -350,13 +403,9 @@ export default function App() {
                 <span className="livedot small" />
                 <div><b>Your timer is live for {active.badge}</b><small>Others see “≥ {Math.floor(elapsed / 60)}m and still waiting” — boarding will add your final wait to the shared estimate.</small></div>
               </div>
-              <button className="gps" onClick={() => setGps(!gps)}>
-                <span className="gpsicon">📡</span>
-                <span className="gpstext"><b>Auto-detect boarding (GPS)</b><small>{gps ? "Geofence + motion confirms your board time" : "Tap to enable sensor-verified logging"}</small></span>
-                <span className={`toggle ${gps ? "on" : ""}`}><i /></span>
-              </button>
               <button className="board" onClick={board}>{tr("boarded")} ✓</button>
-              <button className="leave" onClick={reset}>{tr("leftQueue")}</button>
+              <div style={{ height: 10 }} />
+              <button className="leavered" onClick={reset}>{tr("leftQueue")}</button>
             </div>
           )}
 
@@ -414,6 +463,20 @@ export default function App() {
             </div>
           )}
 
+          {minimized && active && view !== "detail" && (
+            <div className="minipillwrap">
+              <button className="minipill" onClick={() => { setMinimized(false); setView("track"); setTab("track"); }}>
+                <span className="pillbadge" style={{ background: active.badge === "AC7" ? "#fff" : active.color, color: active.badge === "AC7" ? "#1a1a1a" : (darkOn(active.color) ? "#1a1a1a" : "#fff") }}>{active.badge}</span>
+                <div className="pillinfo">
+                  <span className="pillnow">Queuing now</span>
+                  <span className="pillop">{active.op} · to {active.to}</span>
+                  <span className="pilltimer">{fmt(elapsed)}</span>
+                </div>
+                <span className="livedot" />
+              </button>
+            </div>
+          )}
+
           {view !== "track" && view !== "detail" && view !== "done" && view !== "auth" && (
             <nav className="tabs">
               <button className={tab === "live" ? "on" : ""} onClick={() => { setTab("live"); setView("live"); }}>
@@ -439,8 +502,8 @@ export default function App() {
 }
 
 const CHART_HOURS = [
-  { l: "6a", h: 6 }, { l: "8a", h: 8 }, { l: "10a", h: 10 }, { l: "12p", h: 12 },
-  { l: "2p", h: 14 }, { l: "4p", h: 16 }, { l: "6p", h: 18 }, { l: "8p", h: 20 }, { l: "10p", h: 22 },
+  { l: "6am", h: 6 }, { l: "8am", h: 8 }, { l: "10am", h: 10 }, { l: "12pm", h: 12 },
+  { l: "2pm", h: 14 }, { l: "4pm", h: 16 }, { l: "6pm", h: 18 }, { l: "8pm", h: 20 }, { l: "10pm", h: 22 },
 ];
 
 function Stats({ defaultLocId = "woodlands_ckpt" }) {
@@ -469,6 +532,22 @@ function Stats({ defaultLocId = "woodlands_ckpt" }) {
   const isPeak = (hr >= 7 && hr <= 9) || (hr >= 17 && hr <= 20);
   const peakLabel = isPeak ? "Peak now" : hr >= 10 && hr <= 16 ? "Off-peak" : "Clearing";
   const peakColor = isPeak ? C.red : C.green;
+
+  const hourAvgs = chartData.map(d => ({
+    label: d.label,
+    avg: d.ops.length ? Math.round(d.ops.reduce((s, o) => s + o.wait, 0) / d.ops.length) : 99,
+  })).sort((a, b) => a.avg - b.avg);
+  const bestHours = hourAvgs.slice(0, 3);
+  const maxAvgForBar = hourAvgs[hourAvgs.length - 1]?.avg || 1;
+
+  const opAvgs = tiles.map(t => ({
+    ...t,
+    dayAvg: Math.round(CHART_HOURS.reduce((s, { h }) => s + genWait(selLoc, selDay, t.id, h), 0) / CHART_HOURS.length),
+  }));
+  const maxDayAvg = Math.max(...opAvgs.map(o => o.dayAvg), 1);
+
+  const isWknd = selDay > 0 && [0, 6].includes((new Date(Date.now() - selDay * 86400000).getDay()));
+  const wkndNote = isWknd ? "Weekend — 20–25% lighter than peak weekdays" : "Weekday — expect 40% longer waits at peak hours";
   return (
     <div className="stats">
       <div className="droprow">
@@ -534,29 +613,47 @@ function Stats({ defaultLocId = "woodlands_ckpt" }) {
         </div>
       </div>
 
-      <div className="oplabel">Current waits · {locName}</div>
-      <div className="oplist">
-        {tiles.map(t => (
-          <div key={t.id} className="oprow">
-            <span className="opbadge" style={{ background: t.badge === "AC7" ? "#fff" : t.color, color: t.badge === "AC7" ? "#1a1a1a" : (darkOn(t.color) ? "#1a1a1a" : "#fff") }}>{t.badge}</span>
-            <div className="opinfo"><span className="opname2">{t.op}</span><span className="opeta">Next {t.next}m</span></div>
-            <span className="opwait" style={{ color: CROWD[t.crowd].c }}>{t.lo}–{t.hi}<small>m</small></span>
+      <div className="mchartcard" style={{ marginBottom: 10 }}>
+        <div className="mcharthead"><span>Best crossing windows</span><span style={{ color: "var(--muted)", fontSize: 11 }}>{locName}</span></div>
+        {bestHours.map((w, i) => (
+          <div key={i} className="bestrow">
+            <span className="bestrank" style={{ color: i === 0 ? C.gold : "var(--faint)" }}>{i === 0 ? "★" : i + 1}</span>
+            <span className="bestlabel">{w.label}</span>
+            <div className="bestbar"><div className="bestfill" style={{ width: `${Math.max(12, 100 - (w.avg / maxAvgForBar) * 80)}%`, background: i === 0 ? C.green : i === 1 ? C.gold : "var(--line)" }} /></div>
+            <span className="bestwait" style={{ color: i === 0 ? C.green : "var(--muted)" }}>~{w.avg}m</span>
+          </div>
+        ))}
+        <div className="wkndnote">{wkndNote}</div>
+      </div>
+
+      <div className="mchartcard">
+        <div className="mcharthead"><span>Avg wait · all day</span><span style={{ color: "var(--muted)", fontSize: 11 }}>{days[selDay].label.split(" · ")[0]}</span></div>
+        {opAvgs.map(o => (
+          <div key={o.id} className="avgrow">
+            <span className="opbadge" style={{ background: o.badge === "AC7" ? "#fff" : o.color, color: o.badge === "AC7" ? "#1a1a1a" : (darkOn(o.color) ? "#1a1a1a" : "#fff"), minWidth: 36, width: 36, height: 36, borderRadius: 10, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "'Bricolage Grotesque',sans-serif", fontWeight: 800, fontSize: 11, flexShrink: 0 }}>{o.badge}</span>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div className="opname2" style={{ fontSize: 12.5 }}>{o.op}</div>
+              <div className="avgbar"><div className="avgfill" style={{ width: `${Math.max(8, (o.dayAvg / maxDayAvg) * 100)}%`, background: o.badge === "AC7" ? "#888" : o.color }} /></div>
+            </div>
+            <span style={{ fontFamily: "'JetBrains Mono',monospace", fontWeight: 700, fontSize: 15, color: CROWD[o.crowd].c, flexShrink: 0 }}>{o.dayAvg}m</span>
           </div>
         ))}
       </div>
-      <div className="tipcard"><b>Best time to cross</b>Off-peak (10am–4pm) is typically 30–40% faster. Weekends run 20–25% lighter than weekday peaks.</div>
     </div>
   );
 }
 
-function Profile() {
+const REWARD_PTS = 1240;
+
+function Profile({ name = "Jayden Kong", email = "jayden@busqueue.app" }) {
+  const initials = name.split(" ").map(n => n[0]).join("").slice(0, 2).toUpperCase();
   return (
     <div className="profilepage">
       <div className="procard">
-        <div className="avatar">JK</div>
+        <div className="avatar">{initials}</div>
         <div className="proinfo">
-          <div className="aname">Jayden Kong</div>
-          <div className="aemail">jayden@busqueue.app</div>
+          <div className="aname">{name}</div>
+          <div className="aemail">{email}</div>
           <div className="prolevelbadge">
             <span className="prochip">PRO</span>
             <span className="lvlchip">Lv 7</span>
@@ -567,7 +664,7 @@ function Profile() {
         <div className="sc"><b>17m</b><small>avg wait</small></div>
         <div className="sc"><b>42</b><small>trips logged</small></div>
         <div className="sc"><b>318</b><small>riders helped</small></div>
-        <div className="sc"><b>🔥 3</b><small>day streak</small></div>
+        <div className="sc"><b className="ptsbold"><span className="ptsicon">🌿</span>{REWARD_PTS.toLocaleString()}</b><small>reward pts</small></div>
       </div>
       <div className="actlabel">Recent trips</div>
       <div className="actlist">
@@ -613,17 +710,18 @@ const CSS = `
 .body { flex:1; overflow-y:auto; padding:8px 18px 92px; z-index:5; }
 .body.track { display:flex; flex-direction:column; }
 .body::-webkit-scrollbar{display:none;}
-.head { padding:10px 2px 14px; text-align:left; }
+.head { padding:4px 2px 8px; text-align:left; }
 .headrow { display:flex; justify-content:space-between; align-items:center; }
-.logo { font-family:'Bricolage Grotesque',sans-serif; font-weight:800; font-size:28px; letter-spacing:-1px; line-height:1; text-align:left; }
+.logo { font-family:'Bricolage Grotesque',sans-serif; font-weight:800; font-size:20px; letter-spacing:-0.5px; line-height:1; text-align:left; }
 .logo span { color:${C.gold}; }
 .tagline { color:var(--muted); font-size:12.5px; margin-top:5px; }
-.greeting { color:var(--muted); font-size:13px; margin-top:5px; }
-.streak { background:var(--card); border:1px solid var(--line); padding:8px 12px; border-radius:14px; font-weight:700; font-size:13px; }
+.greeting { color:var(--muted); font-size:11.5px; margin-top:2px; }
+.streak { background:var(--card); border:1px solid var(--line); padding:4px 8px; border-radius:10px; font-weight:700; font-size:11px; }
+.tabhead { padding:6px 2px 10px; }
 .iconbtn { width:38px; height:38px; border-radius:13px; background:var(--card); border:1px solid var(--line); color:var(--muted); display:flex; align-items:center; justify-content:center; cursor:pointer; }
 .iconbtn:hover { color:var(--text); }
 
-.seg { display:flex; background:var(--card); border:1px solid var(--line); border-radius:14px; padding:4px; gap:4px; margin-bottom:12px; }
+.seg { display:flex; background:var(--card); border:1px solid var(--line); border-radius:14px; padding:4px; gap:4px; margin-bottom:8px; }
 .seg button { flex:1; background:none; border:none; color:var(--muted); font-size:12.5px; font-weight:700; padding:10px 4px; border-radius:10px; cursor:pointer; transition:.2s; }
 .seg button.on { background:${C.gold}; color:#1a1a1a; }
 .seg.three button { font-size:13px; }
@@ -645,7 +743,7 @@ const CSS = `
 .pick.on { background:rgba(255,178,62,.1); color:#B57A12; font-weight:700; }
 .screen.dark .pick.on { color:${C.gold}; }
 
-.freshrow { display:flex; align-items:center; gap:7px; color:var(--muted); font-size:12px; margin:16px 2px 10px; }
+.freshrow { display:flex; align-items:center; gap:7px; color:var(--muted); font-size:12px; margin:10px 2px 8px; }
 .livedot { width:8px; height:8px; border-radius:50%; background:${C.green}; animation:pulse 1.8s infinite; flex-shrink:0; }
 .livedot.big { width:10px; height:10px; }
 .livedot.small { width:8px; height:8px; margin-top:4px; }
@@ -654,8 +752,8 @@ const CSS = `
 .body.livetab { display:flex; flex-direction:column; overflow:hidden; padding-bottom:0; }
 .listscroll { flex:1; overflow-y:auto; padding-bottom:92px; }
 .listscroll::-webkit-scrollbar { display:none; }
-.list { display:flex; flex-direction:column; gap:13px; }
-.route { display:flex; align-items:stretch; gap:13px; background:var(--card); border:1px solid var(--line); border-radius:20px; padding:16px 16px 16px 14px; cursor:pointer; text-align:left; color:var(--text); opacity:0; transform:translateY(10px); animation:rise .5s forwards ease; }
+.list { display:flex; flex-direction:column; gap:10px; }
+.route { display:flex; align-items:center; gap:12px; background:var(--card); border:1px solid var(--line); border-radius:18px; padding:12px 14px 12px 12px; cursor:pointer; text-align:left; color:var(--text); opacity:0; transform:translateY(10px); animation:rise .5s forwards ease; }
 .route:active { transform:scale(.99); }
 .route:hover { border-color:var(--faint); }
 @keyframes rise { to { opacity:1; transform:translateY(0); } }
@@ -727,10 +825,10 @@ const CSS = `
 .sparkrow { display:flex; align-items:flex-end; gap:5px; height:60px; }
 .sbar { flex:1; border-radius:4px 4px 2px 2px; min-height:6px; transform-origin:bottom; animation:grow .5s ease forwards; }
 
-.trouter { display:flex; align-items:center; gap:13px; background:var(--card); border:1px solid var(--line); border-radius:18px; padding:13px 14px; margin:12px 0 6px; }
+.trouter { display:flex; align-items:center; gap:13px; background:var(--card); border:1px solid var(--line); border-radius:18px; padding:10px 12px; margin:8px 0 4px; }
 .trop { font-size:12.5px; color:var(--muted); margin-top:5px; }
-.ringwrap { position:relative; width:230px; height:230px; align-self:center; margin:12px auto 6px; }
-.ring { display:block; width:230px; height:230px; }
+.ringwrap { position:relative; width:210px; height:210px; align-self:center; margin:8px auto 4px; }
+.ring { display:block; width:210px; height:210px; }
 .ringtrack { stroke:var(--line); }
 .ringcenter { position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; text-align:center; }
 .bigtimer { font-family:'JetBrains Mono',monospace; font-weight:700; font-size:50px; line-height:1.05; font-variant-numeric:tabular-nums; text-align:center; }
@@ -738,7 +836,7 @@ const CSS = `
 .censored { display:flex; gap:10px; background:rgba(58,210,159,.08); border:1px solid rgba(58,210,159,.24); border-radius:16px; padding:12px 14px; margin:8px 0; }
 .censored b { font-size:13.5px; display:block; }
 .censored small { font-size:11.5px; color:var(--muted); line-height:1.5; display:block; margin-top:2px; }
-.gps { width:100%; display:flex; align-items:center; gap:12px; background:var(--card); border:1px solid var(--line); border-radius:16px; padding:13px 14px; cursor:pointer; color:var(--text); text-align:left; margin:6px 0 12px; }
+.gps { width:100%; display:flex; align-items:center; gap:12px; background:var(--card); border:1px solid var(--line); border-radius:16px; padding:11px 14px; cursor:pointer; color:var(--text); text-align:left; margin:4px 0 8px; }
 .gpsicon { font-size:18px; }
 .gpstext { flex:1; display:flex; flex-direction:column; gap:2px; }
 .gpstext b { font-size:14px; }
@@ -747,9 +845,11 @@ const CSS = `
 .toggle.on { background:${C.green}; }
 .toggle i { position:absolute; top:3px; left:3px; width:21px; height:21px; border-radius:50%; background:#fff; transition:left .2s; }
 .toggle.on i { left:22px; }
-.board { width:100%; background:${C.lime}; color:#15240a; border:none; border-radius:18px; padding:17px; font-family:'Bricolage Grotesque',sans-serif; font-weight:800; font-size:17px; cursor:pointer; box-shadow:0 10px 24px -8px rgba(166,226,92,.45); }
+.board { width:100%; background:${C.lime}; color:#15240a; border:none; border-radius:16px; padding:14px; font-family:'Bricolage Grotesque',sans-serif; font-weight:800; font-size:16px; cursor:pointer; box-shadow:0 8px 20px -8px rgba(166,226,92,.45); }
 .board:active { transform:scale(.98); }
-.leave { width:100%; background:none; border:none; color:var(--muted); font-size:13px; padding:14px; cursor:pointer; }
+.leave { width:100%; background:none; border:none; color:var(--muted); font-size:13px; padding:12px; cursor:pointer; }
+.leavered { width:100%; background:rgba(255,107,107,.1); border:1px solid rgba(255,107,107,.3); color:${C.red}; border-radius:14px; padding:11px; font-size:13px; font-weight:700; cursor:pointer; margin-top:4px; }
+.leavered:active { transform:scale(.98); }
 .done { display:flex; flex-direction:column; align-items:center; padding-top:48px; text-align:center; }
 .check { width:80px; height:80px; border-radius:50%; background:rgba(166,226,92,.15); color:#5a8a1e; display:flex; align-items:center; justify-content:center; font-size:40px; font-weight:800; animation:pop .5s ease; }
 .screen.dark .check { color:${C.lime}; }
@@ -795,8 +895,10 @@ const CSS = `
 .opwait small { font-size:10px; margin-left:1px; font-family:'DM Sans'; opacity:.8; }
 .profilepage { padding-top:4px; }
 .procard { background:var(--card); border:1px solid var(--line); border-radius:20px; padding:16px; display:flex; align-items:center; gap:14px; margin-bottom:14px; }
-.proinfo { flex:1; }
-.prolevelbadge { display:flex; align-items:center; gap:6px; margin-top:6px; }
+.procardcol { flex-direction:column; align-items:center; padding:20px 16px; gap:10px; }
+.proinfo { flex:1; text-align:center; }
+.procenterinfo { flex:unset; text-align:center; }
+.prolevelbadge { display:flex; align-items:center; justify-content:center; gap:6px; margin-top:6px; }
 .lvlchip { background:rgba(91,168,255,.14); color:${C.blue}; font-size:11px; font-weight:800; padding:3px 8px; border-radius:8px; letter-spacing:.3px; }
 .actlabel { font-size:11px; font-weight:700; color:var(--faint); text-transform:uppercase; letter-spacing:.5px; margin:4px 2px 8px; }
 .actlist { display:flex; flex-direction:column; gap:8px; margin-bottom:12px; }
@@ -806,15 +908,13 @@ const CSS = `
 .actwhen { font-size:11px; color:var(--muted); }
 .actwait { font-family:'JetBrains Mono',monospace; font-weight:700; font-size:15px; white-space:nowrap; color:var(--text); }
 .statcards { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin:14px 0; }
-.sc { background:var(--card); border:1px solid var(--line); border-radius:16px; padding:15px; display:flex; flex-direction:column; gap:3px; }
-.sc b { font-family:'JetBrains Mono',monospace; font-size:24px; }
+.sc { background:var(--card); border:1px solid var(--line); border-radius:16px; padding:15px; display:flex; flex-direction:column; gap:3px; align-items:center; }
+.sc b { font-family:'JetBrains Mono',monospace; font-size:24px; display:flex; align-items:center; gap:3px; }
 .sc small { color:var(--muted); font-size:12px; }
 .fill { width:100%; border-radius:7px 7px 3px 3px; min-height:6px; transform-origin:bottom; animation:grow .6s ease forwards; }
 @keyframes grow { from{transform:scaleY(0)} to{transform:scaleY(1)} }
-.statcards { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin:14px 0; }
-.sc { background:var(--card); border:1px solid var(--line); border-radius:16px; padding:15px; display:flex; flex-direction:column; gap:3px; }
-.sc b { font-family:'JetBrains Mono',monospace; font-size:24px; }
-.sc small { color:var(--muted); font-size:12px; }
+.ptsbold { font-size:20px !important; display:flex !important; align-items:center; gap:3px; }
+.ptsicon { font-family:'DM Sans',sans-serif; font-size:16px; line-height:1; }
 .tipcard { background:rgba(255,178,62,.1); border:1px solid rgba(255,178,62,.28); border-radius:16px; padding:15px; font-size:13px; color:var(--text); line-height:1.55; display:flex; flex-direction:column; gap:6px; }
 .tipcard b { color:#B57A12; }
 .screen.dark .tipcard b { color:${C.gold}; }
@@ -843,4 +943,36 @@ const CSS = `
 .authsubmit { margin-top:4px; }
 .forgotlink { background:none; border:none; color:var(--muted); font-size:12.5px; cursor:pointer; text-align:right; padding:0 2px; }
 .authfooter { text-align:center; color:var(--faint); font-size:11px; line-height:1.6; padding:0 8px; }
+
+.draghandle { width:36px; height:4px; border-radius:3px; background:var(--line); align-self:center; margin:4px auto 6px; cursor:pointer; border:none; padding:0; display:block; flex-shrink:0; }
+.draghandle:hover { background:var(--faint); }
+.closebtn { background:var(--card); border:1px solid var(--line); color:var(--text); width:34px; height:34px; border-radius:11px; display:flex; align-items:center; justify-content:center; cursor:pointer; }
+
+.minipillwrap { position:absolute; bottom:78px; left:0; right:0; z-index:19; padding:0 12px 8px; }
+.minipill { width:100%; display:flex; align-items:center; gap:10px; background:var(--card2); border:1px solid var(--line); border-radius:16px; padding:10px 13px; cursor:pointer; text-align:left; color:var(--text); backdrop-filter:blur(16px); }
+.minipill:active { transform:scale(.99); }
+.pillbadge { min-width:34px; width:34px; height:34px; border-radius:10px; display:flex; align-items:center; justify-content:center; font-family:'Bricolage Grotesque',sans-serif; font-weight:800; font-size:11px; flex-shrink:0; }
+.pillinfo { flex:1; display:flex; flex-direction:column; gap:1px; min-width:0; overflow:hidden; }
+.pillnow { font-size:9.5px; font-weight:800; color:#3AD29F; text-transform:uppercase; letter-spacing:.6px; line-height:1; margin-bottom:1px; }
+.pillop { font-size:11px; font-weight:600; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.pilltimer { font-family:'JetBrains Mono',monospace; font-size:17px; font-weight:700; line-height:1.2; }
+
+.quick.qgray { opacity:0.3; cursor:not-allowed; }
+.bestrow { display:flex; align-items:center; gap:9px; padding:8px 0; border-bottom:1px solid var(--line); }
+.bestrow:last-of-type { border-bottom:none; }
+.bestrank { width:14px; text-align:center; font-size:12px; font-weight:700; flex-shrink:0; }
+.bestlabel { font-size:12.5px; font-weight:700; min-width:40px; color:var(--text); }
+.bestbar { flex:1; height:5px; background:var(--card2); border-radius:3px; overflow:hidden; }
+.bestfill { height:100%; border-radius:3px; transition:width .5s ease; }
+.bestwait { font-family:'JetBrains Mono',monospace; font-weight:700; font-size:12.5px; min-width:36px; text-align:right; flex-shrink:0; }
+.wkndnote { font-size:11px; color:var(--faint); margin-top:10px; padding-top:8px; border-top:1px solid var(--line); line-height:1.5; }
+.avgrow { display:flex; align-items:center; gap:10px; padding:8px 0; border-bottom:1px solid var(--line); }
+.avgrow:last-child { border-bottom:none; }
+.avgbar { height:4px; background:var(--card2); border-radius:2px; overflow:hidden; margin-top:5px; }
+.avgfill { height:100%; border-radius:2px; transition:width .5s ease; }
+.boarddim { opacity:0.45 !important; cursor:not-allowed !important; box-shadow:none !important; }
+.editbtn { background:none; border:none; color:var(--muted); font-size:11px; font-weight:700; cursor:pointer; padding:2px 0; letter-spacing:.3px; }
+.editbtn:hover { color:${C.gold}; }
+.savebtn { background:${C.gold}; color:#1a1a1a; border:none; border-radius:9px; padding:5px 12px; font-size:11px; font-weight:800; cursor:pointer; }
+.setinput { padding:9px 11px !important; font-size:13px !important; border-radius:11px !important; }
 `;
