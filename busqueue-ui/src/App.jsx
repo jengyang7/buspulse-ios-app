@@ -151,7 +151,7 @@ export default function App() {
   const [minimized, setMinimized] = useState(false);
   const [queueOrigin, setQueueOrigin] = useState("live");
   const [profileName, setProfileName] = useState("Jayden Kong");
-  const [profileEmail, setProfileEmail] = useState("jayden@busqueue.app");
+  const [profileEmail, setProfileEmail] = useState("jayden@buspulse.app");
   const [editingProfile, setEditingProfile] = useState(false);
   const [authMode, setAuthMode] = useState("signin");
   const [authEmail, setAuthEmail] = useState("");
@@ -207,7 +207,7 @@ export default function App() {
                 <header className="head">
                   <div className="headrow">
                     <div>
-                      <div className="logo">Bus<span>Queue</span></div>
+                      <div className="logo">Bus<span>Pulse</span></div>
                       <div className="greeting">{greet}, Jayden</div>
                     </div>
                     <div className="streak">🌿 {REWARD_PTS.toLocaleString()}</div>
@@ -327,7 +327,7 @@ export default function App() {
               </div>
 
               <button className="logout" onClick={() => { setAuthEmail(""); setAuthPw(""); setAuthPw2(""); setView("auth"); }}>{tr("logout")}</button>
-              <div className="version">BusQueue v0.9 · made for the Causeway 🌉</div>
+              <div className="version">buspulse v0.9 · made for the Causeway 🌉</div>
             </div>
           )}
 
@@ -429,7 +429,7 @@ export default function App() {
           {view === "auth" && (
             <div className="body authbody">
               <div className="authlogo">
-                <div className="logo">Bus<span>Queue</span></div>
+                <div className="logo">Bus<span>Pulse</span></div>
                 <div className="tagline">Real-time queue estimates from community</div>
               </div>
               <div className="authcard">
@@ -496,7 +496,7 @@ export default function App() {
         </div>
         <div className="notch" />
       </div>
-      <p className="caption"><b>BusQueue</b> — open <b>Settings</b> (gear, top-right) to switch language live (EN / 中文 / Melayu) and toggle light / dark mode. SBS-family routes now share one <b>SBS</b> tile.</p>
+      <p className="caption"><b>buspulse</b> — open <b>Settings</b> (gear, top-right) to switch language live (EN / 中文 / Melayu) and toggle light / dark mode. SBS-family routes now share one <b>SBS</b> tile.</p>
     </div>
   );
 }
@@ -645,7 +645,7 @@ function Stats({ defaultLocId = "woodlands_ckpt" }) {
 
 const REWARD_PTS = 1240;
 
-function Profile({ name = "Jayden Kong", email = "jayden@busqueue.app" }) {
+function Profile({ name = "Jayden Kong", email = "jayden@buspulse.app" }) {
   const initials = name.split(" ").map(n => n[0]).join("").slice(0, 2).toUpperCase();
   return (
     <div className="profilepage">
@@ -929,7 +929,7 @@ const CSS = `
 /* auth */
 .authbody { display:flex; flex-direction:column; justify-content:center; padding:28px 22px 32px; gap:28px; min-height:100%; }
 .authlogo { text-align:center; }
-.authlogo .logo { font-size:34px; }
+.authlogo .logo { font-size:34px; text-align:center;}
 .authlogo .tagline { margin-top:7px; }
 .authcard { display:flex; flex-direction:column; gap:12px; }
 .authtab { margin-bottom:2px; }
