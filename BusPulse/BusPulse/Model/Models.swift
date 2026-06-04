@@ -79,9 +79,36 @@ struct RouteTile: Identifiable, Hashable {
     let crowd: CrowdLevel
     let next: Int
     let reports: Int
+    /// Seconds since this estimate was last refreshed (drives the "updated …" label).
     let fresh: Int
 
+    // Server-computed fields (§2). Default to the prototype's derived math so
+    // SampleData / previews don't need to supply them.
+    let estimate: Int       // central estimate (max of weighted median, censored floor)
+    let confidence: String  // "High" | "Good" | "Building"
+    let activeCount: Int    // people currently queuing this tile ("timing now")
+
+    init(id: String, badge: String, lines: [String], colorHex: String, op: String,
+         to: String, low: Int, high: Int, crowd: CrowdLevel, next: Int,
+         reports: Int, fresh: Int,
+         estimate: Int? = nil, confidence: String? = nil, activeCount: Int? = nil) {
+        self.id = id; self.badge = badge; self.lines = lines; self.colorHex = colorHex
+        self.op = op; self.to = to; self.low = low; self.high = high; self.crowd = crowd
+        self.next = next; self.reports = reports; self.fresh = fresh
+        self.estimate = estimate ?? Int((Double(low + high) / 2).rounded())
+        self.confidence = confidence ?? (reports >= 12 ? "High" : reports >= 7 ? "Good" : "Building")
+        self.activeCount = activeCount ?? max(1, min(4, Int((Double(reports) / 6).rounded())))
+    }
+
     var color: Color { Color(hex: colorHex) }
+
+    /// Human "updated X ago" — seconds under a minute, then minutes, then hours.
+    var freshLabel: String {
+        let s = max(fresh, 0)
+        if s < 60 { return "\(s)s ago" }
+        let m = s / 60
+        return m < 60 ? "\(m)m ago" : "\(m / 60)h ago"
+    }
 
     /// AC7 renders as a white badge with dark text; CW/lime use dark text too.
     var badgeBackground: Color { badge == "AC7" ? .white : color }

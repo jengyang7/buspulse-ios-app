@@ -125,7 +125,7 @@ struct LiveView: View {
 
     private var locationPicker: some View {
         VStack(spacing: 0) {
-            ForEach(SampleData.locations(for: model.direction)) { loc in
+            ForEach(model.locations(for: model.direction)) { loc in
                 Button {
                     model.selectLocation(loc.id)
                     withAnimation(.easeInOut(duration: 0.2)) { pickerOpen = false }
@@ -141,7 +141,7 @@ struct LiveView: View {
                     .padding(.vertical, 13)
                 }
                 .buttonStyle(.plain)
-                if loc.id != SampleData.locations(for: model.direction).last?.id {
+                if loc.id != model.locations(for: model.direction).last?.id {
                     theme.line.frame(height: 1)
                 }
             }
@@ -191,7 +191,7 @@ private struct RouteTileRow: View {
                     Text("\(Strings.t("nextBus", model.language)) \(tile.next)m")
                         .font(AppFont.body(12))
                         .foregroundStyle(theme.muted)
-                    Text("\(Estimate.liveRecorders(tile)) timing now · updated \(tile.fresh)m ago")
+                    Text("\(tile.activeCount) timing now · updated \(tile.freshLabel)")
                         .font(AppFont.body(11))
                         .foregroundStyle(theme.faint)
                 }

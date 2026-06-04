@@ -70,3 +70,9 @@ from (values
 ) as v(location_id, route_id, low, high, estimate, crowd, confidence, n_eff, active_count, fresh)
 join route_stops rs
   on rs.location_id = v.location_id and rs.route_id = v.route_id;
+
+-- Historical prior (Phase 2): seed a per-tile × weekday × hour baseline from the
+-- estimates above, then recompute every tile so quiet tiles show the "typical
+-- for this time" estimate immediately (not the static seed).
+select seed_wait_history_baseline();
+select compute_estimate(id) from route_stops;

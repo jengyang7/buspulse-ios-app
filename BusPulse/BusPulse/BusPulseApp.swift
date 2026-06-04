@@ -9,7 +9,7 @@ import SwiftUI
 
 @main
 struct BusPulseApp: App {
-    @State private var model = AppModel()
+    @State private var model = AppModel(dataSource: SupabaseDataSource())
 
     init() {
         FontRegistration.registerBundledFonts()
@@ -21,6 +21,7 @@ struct BusPulseApp: App {
                 .environment(model)
                 .environment(\.theme, model.theme)
                 .preferredColorScheme(model.colorScheme)
+                .task { await model.load() }
         }
     }
 }

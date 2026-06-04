@@ -11,10 +11,20 @@ import SwiftUI
 struct RouteDetailView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.theme) private var theme
-    let tile: RouteTile
+    private let initial: RouteTile
     @State private var barsGrown = false
+    @State private var realSpark: [Int] = []
 
-    private var spark: [Int] { Estimate.spark(tile) }
+    init(tile: RouteTile) { self.initial = tile }
+
+    /// Live tile: track the current value from the model so the detail screen
+    /// updates as estimates change, falling back to the tapped snapshot.
+    private var tile: RouteTile {
+        model.tiles.first { $0.id == initial.id } ?? initial
+    }
+
+    /// Real recent boarded waits when available, else the synthetic sparkline.
+    private var spark: [Int] { realSpark.isEmpty ? Estimate.spark(tile) : realSpark }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -35,6 +45,7 @@ struct RouteDetailView: View {
             }
         }
         .background(theme.bg)
+        .task(id: tile.id) { realSpark = await model.recentWaits(for: tile.id) }
     }
 
     // MARK: Nav bar
@@ -107,7 +118,7 @@ struct RouteDetailView: View {
                         .font(AppFont.body(13, weight: .bold))
                         .foregroundStyle(theme.text)
                     Spacer()
-                    Text("\(Estimate.confidence(tile)) confidence")
+                    Text("\(tile.confidence) confidence")
                         .font(AppFont.body(11, weight: .bold))
                         .foregroundStyle(Palette.green)
                         .padding(.horizontal, 8).padding(.vertical, 4)
@@ -117,8 +128,8 @@ struct RouteDetailView: View {
                 }
                 HStack(spacing: 10) {
                     statCell("\(tile.reports)", "recent reports")
-                    statCell("\(Estimate.liveRecorders(tile))", "timing now")
-                    statCell("\(Estimate.latestBoarded(tile))m", "latest boarded")
+                    statCell("\(tile.activeCount)", "timing now")
+                    statCell("\(tile.estimate)m", "estimate")
                 }
             }
         }

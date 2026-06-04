@@ -31,6 +31,9 @@ Thumbs.db
 # Vite
 *.local
 
+# Claude Code
+CLAUDE.md
+
 # Xcode / Swift
 xcuserdata/
 *.xcuserstate

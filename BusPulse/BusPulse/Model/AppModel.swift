@@ -28,7 +28,10 @@ final class AppModel {
 
     // Live screen selection
     var direction: Direction = .sgToMy {
-        didSet { selectedLocationId = SampleData.firstLocation(for: direction).id }
+        didSet {
+            selectedLocationId = firstLocationId(for: direction)
+            reloadSelectedTiles()
+        }
     }
     var selectedLocationId: String = SampleData.firstLocation(for: .sgToMy).id
 
@@ -38,6 +41,11 @@ final class AppModel {
     var minimized = false
     private var queueOrigin: Flow?           // where the queue was started from
     private var timerTask: Task<Void, Never>?
+    private var sessionId: String?           // backend queue_sessions.id, if any
+
+    // Auth UI state
+    var authError: String?
+    var authBusy = false
 
     // Settings / preferences
     var appearance: AppearanceMode = .dark
@@ -53,13 +61,40 @@ final class AppModel {
     var theme: Theme { appearance.theme }
     var colorScheme: ColorScheme { appearance == .dark ? .dark : .light }
 
+    // MARK: - Data source
+
+    private let dataSource: DataSource
+    /// All known locations — seeded from SampleData, replaced by `load()`.
+    var allLocations: [Location] = SampleData.locations
+    /// Tiles keyed by location id — seeded from SampleData, replaced by `load()`.
+    private var tilesByLocation: [String: [RouteTile]] = SampleData.tiles
+    /// Non-nil when the last backend load failed (UI may surface it).
+    var loadError: String?
+
+    init(dataSource: DataSource = MockDataSource()) {
+        self.dataSource = dataSource
+    }
+
     // MARK: - Derived
 
     var selectedLocation: Location {
-        SampleData.locations.first { $0.id == selectedLocationId }!
+        allLocations.first { $0.id == selectedLocationId }
+            ?? SampleData.firstLocation(for: direction)
     }
-    var tiles: [RouteTile] { SampleData.tiles(for: selectedLocationId) }
-    var totalReports: Int { SampleData.totalReports(for: selectedLocationId) }
+    var tiles: [RouteTile] {
+        (tilesByLocation[selectedLocationId] ?? []).sorted { $0.low < $1.low }
+    }
+    var totalReports: Int {
+        (tilesByLocation[selectedLocationId] ?? []).reduce(0) { $0 + $1.reports }
+    }
+
+    func locations(for direction: Direction) -> [Location] {
+        allLocations.filter { $0.direction == direction }
+    }
+
+    private func firstLocationId(for direction: Direction) -> String {
+        locations(for: direction).first?.id ?? SampleData.firstLocation(for: direction).id
+    }
 
     /// Mid-range estimate in seconds for the active queue.
     var estimateSeconds: Int {
@@ -86,7 +121,92 @@ final class AppModel {
 
     // MARK: - Navigation actions
 
-    func selectLocation(_ id: String) { selectedLocationId = id }
+    func selectLocation(_ id: String) {
+        selectedLocationId = id
+        reloadSelectedTiles()
+    }
+
+    // MARK: - Data loading
+
+    /// Fetch locations + tiles for the current selection, replacing seed data.
+    /// Safe to call repeatedly; failures are captured in `loadError`.
+    func load() async {
+        // Gate on auth: no session → show the sign-in screen. Tiles are still
+        // loaded below (they're public) so data is ready once the user signs in.
+        if await dataSource.currentUserId() == nil {
+            flow = .auth
+        }
+        do {
+            let locs = try await dataSource.loadLocations()
+            if !locs.isEmpty {
+                allLocations = locs
+                if !allLocations.contains(where: { $0.id == selectedLocationId }) {
+                    selectedLocationId = firstLocationId(for: direction)
+                }
+            }
+            try await loadTiles(for: selectedLocationId)
+            loadError = nil
+        } catch {
+            loadError = error.localizedDescription
+        }
+        startLiveUpdates()
+    }
+
+    // MARK: Live updates
+
+    private var realtimeTask: Task<Void, Never>?
+    private var pollTask: Task<Void, Never>?
+
+    /// Keeps the visible tiles fresh two ways: a Realtime subscription for
+    /// instant pushes, plus a periodic poll as a reliable fallback (the cron
+    /// recomputes server-side every 30s). Both are started once and idempotent.
+    private func startLiveUpdates() {
+        startObservingEstimates()
+        startPolling()
+    }
+
+    /// Realtime push: reload the visible location whenever a wait_estimates row
+    /// changes. Started once — re-subscribing would orphan the channel.
+    private func startObservingEstimates() {
+        guard realtimeTask == nil else { return }
+        realtimeTask = Task { [weak self] in
+            guard let self else { return }
+            for await _ in self.dataSource.estimateChanges() {
+                try? await self.loadTiles(for: self.selectedLocationId)
+            }
+        }
+    }
+
+    /// Fallback poll so tiles stay live even if Realtime drops or is filtered.
+    private func startPolling() {
+        guard pollTask == nil else { return }
+        pollTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(10))
+                guard let self else { return }
+                try? await self.loadTiles(for: self.selectedLocationId)
+            }
+        }
+    }
+
+    private func loadTiles(for locationId: String) async throws {
+        tilesByLocation[locationId] = try await dataSource.loadTiles(locationId: locationId)
+    }
+
+    /// Recent completed waits for a tile (real sparkline); [] if unavailable.
+    func recentWaits(for routeStopId: String) async -> [Int] {
+        (try? await dataSource.recentWaits(routeStopId: routeStopId)) ?? []
+    }
+
+    /// Fire-and-forget tile refresh for the current selection (used by setters).
+    private func reloadSelectedTiles() {
+        let id = selectedLocationId
+        Task { [weak self] in
+            guard let self else { return }
+            do { try await self.loadTiles(for: id) }
+            catch { self.loadError = error.localizedDescription }
+        }
+    }
 
     func openDetail(_ tile: RouteTile) { flow = .detail(tile) }
 
@@ -105,6 +225,7 @@ final class AppModel {
         queueOrigin = flow
         flow = .track
         startTimer()
+        openSession(for: tile)
     }
 
     /// Start queuing but stay on Live with a minimized mini-pill.
@@ -116,6 +237,17 @@ final class AppModel {
         flow = nil
         tab = .live
         startTimer()
+        openSession(for: tile)
+    }
+
+    /// Optimistically open a backend queue session (the local timer already runs).
+    private func openSession(for tile: RouteTile) {
+        sessionId = nil
+        Task { [weak self] in
+            guard let self else { return }
+            do { self.sessionId = try await self.dataSource.startQueue(routeStopId: tile.id) }
+            catch { self.loadError = error.localizedDescription }
+        }
     }
 
     func expandQueue() {
@@ -134,7 +266,16 @@ final class AppModel {
         }
     }
 
-    func board() { flow = .done }
+    /// Close the session on the backend (awards points, recomputes), then show
+    /// the confirmation. Optimistic: we navigate immediately.
+    func board() {
+        flow = .done
+        if let sid = sessionId {
+            Task { [weak self] in
+                try? await self?.dataSource.board(sessionId: sid)
+            }
+        }
+    }
 
     func reset() {
         stopTimer()
@@ -142,6 +283,7 @@ final class AppModel {
         elapsed = 0
         minimized = false
         queueOrigin = nil
+        sessionId = nil
         flow = nil
         tab = .live
     }
@@ -166,10 +308,34 @@ final class AppModel {
 
     // MARK: - Auth
 
-    func logOut() { flow = .auth }
-    func signIn() {
-        flow = nil
-        tab = .live
+    func signIn(email: String, password: String) async {
+        await authenticate { try await self.dataSource.signIn(email: email, password: password) }
+    }
+
+    func signUp(email: String, password: String) async {
+        await authenticate { try await self.dataSource.signUp(email: email, password: password) }
+    }
+
+    private func authenticate(_ action: () async throws -> Void) async {
+        authBusy = true
+        authError = nil
+        do {
+            try await action()
+            authBusy = false
+            flow = nil
+            tab = .live
+            await load()                       // refresh data as the new user
+        } catch {
+            authBusy = false
+            authError = error.localizedDescription
+        }
+    }
+
+    func logOut() {
+        Task { [weak self] in
+            try? await self?.dataSource.signOut()
+            self?.flow = .auth
+        }
     }
 
     // MARK: - Formatting

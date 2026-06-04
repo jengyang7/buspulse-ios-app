@@ -53,16 +53,24 @@ struct AuthView: View {
                     }
                 }
 
-                Button { model.signIn() } label: {
-                    Text(mode == .signIn ? "Sign in" : "Create account")
+                if let error = model.authError {
+                    Text(error)
+                        .font(AppFont.body(12))
+                        .foregroundStyle(Palette.red)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+
+                Button { submit() } label: {
+                    Text(model.authBusy ? "…" : (mode == .signIn ? "Sign in" : "Create account"))
                         .font(AppFont.body(15, weight: .bold))
                         .foregroundStyle(Color(hex: "#1A1A1A"))
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 16)
-                        .background(Palette.lime)
+                        .background(Palette.lime.opacity(canSubmit ? 1 : 0.5))
                         .clipShape(RoundedRectangle(cornerRadius: 16))
                 }
                 .buttonStyle(.plain)
+                .disabled(!canSubmit)
                 .padding(.top, 4)
             }
             .padding(.horizontal, 4)
@@ -78,6 +86,22 @@ struct AuthView: View {
         .padding(.horizontal, 24)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(theme.bg)
+    }
+
+    private var canSubmit: Bool {
+        guard !model.authBusy, !email.isEmpty, password.count >= 6 else { return false }
+        if mode == .signUp { return password == confirm }
+        return true
+    }
+
+    private func submit() {
+        Task {
+            if mode == .signIn {
+                await model.signIn(email: email, password: password)
+            } else {
+                await model.signUp(email: email, password: password)
+            }
+        }
     }
 
     private var googleButton: some View {
