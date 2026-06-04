@@ -118,13 +118,7 @@ struct RouteDetailView: View {
                         .font(AppFont.body(13, weight: .bold))
                         .foregroundStyle(theme.text)
                     Spacer()
-                    Text("\(tile.confidence) confidence")
-                        .font(AppFont.body(11, weight: .bold))
-                        .foregroundStyle(Palette.green)
-                        .padding(.horizontal, 8).padding(.vertical, 4)
-                        .background(Palette.green.opacity(0.12))
-                        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Palette.green.opacity(0.3), lineWidth: 1))
-                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                    confidenceBadge
                 }
                 HStack(spacing: 10) {
                     statCell("\(tile.reports)", "recent reports")
@@ -133,6 +127,20 @@ struct RouteDetailView: View {
                 }
             }
         }
+    }
+
+    /// Green "X confidence" for live estimates; a calmer blue "Typical for this
+    /// time" when the estimate is driven only by the historical baseline.
+    private var confidenceBadge: some View {
+        let color = tile.isTypical ? Palette.blue : Palette.green
+        let text = tile.isTypical ? "Typical for this time" : "\(tile.confidence) confidence"
+        return Text(text)
+            .font(AppFont.body(11, weight: .bold))
+            .foregroundStyle(color)
+            .padding(.horizontal, 8).padding(.vertical, 4)
+            .background(color.opacity(0.12))
+            .overlay(RoundedRectangle(cornerRadius: 8).stroke(color.opacity(0.3), lineWidth: 1))
+            .clipShape(RoundedRectangle(cornerRadius: 8))
     }
 
     private func statCell(_ value: String, _ label: String) -> some View {
@@ -153,11 +161,11 @@ struct RouteDetailView: View {
         return ThemedCard {
             VStack(alignment: .leading, spacing: 12) {
                 HStack {
-                    Text("Recent reported waits")
+                    Text(realSpark.isEmpty ? "Typical wait pattern" : "Recent reported waits")
                         .font(AppFont.body(13, weight: .bold))
                         .foregroundStyle(theme.text)
                     Spacer()
-                    Text("last 30 min · newest →")
+                    Text(realSpark.isEmpty ? "usual for this time" : "last 30 min · newest →")
                         .font(AppFont.body(11))
                         .foregroundStyle(theme.muted)
                 }

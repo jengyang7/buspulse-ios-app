@@ -14,14 +14,29 @@ struct StatsView: View {
 
     @State private var locId: String = ""
     @State private var dayOffset = 0
+    @State private var statsTiles: [RouteTile] = []
+    @State private var historyMap: [String: [Int: Int]] = [:]   // routeStopId → hour → median
 
     /// Chart-bar colour for an operator (AC7 reads as grey in the chart).
     private func chartColor(_ tile: RouteTile) -> Color {
         tile.badge == "AC7" ? Color(hex: "#AAAAAA") : tile.color
     }
 
-    private var tiles: [RouteTile] { SampleData.tiles[locId] ?? [] }
-    private var locName: String { SampleData.locations.first { $0.id == locId }?.name ?? "" }
+    private var tiles: [RouteTile] { statsTiles }
+    private var locName: String { model.allLocations.first { $0.id == locId }?.name ?? "" }
+
+    /// Real historical median for this tile/hour, falling back to the synthetic
+    /// model when history is absent (e.g. previews / mock data source).
+    private func waitFor(_ tile: RouteTile, _ hour: Int) -> Int {
+        historyMap[tile.id]?[hour]
+            ?? Stats.wait(locationId: locId, dayOffset: dayOffset, opId: tile.id, hour: hour)
+    }
+
+    private func weekdayType(for offset: Int) -> String {
+        let d = Calendar.current.date(byAdding: .day, value: -offset, to: Date()) ?? Date()
+        let wd = Calendar.current.component(.weekday, from: d)
+        return (wd == 1 || wd == 7) ? "weekend" : "weekday"
+    }
 
     var body: some View {
         // Title + location/day selectors stay pinned; only the cards scroll.
@@ -51,6 +66,11 @@ struct StatsView: View {
         }
         .background(theme.bg)
         .onAppear { if locId.isEmpty { locId = model.selectedLocationId } }
+        .task(id: "\(locId)|\(dayOffset)") {
+            guard !locId.isEmpty else { return }
+            statsTiles = await model.statsTiles(locationId: locId)
+            historyMap = await model.history(locationId: locId, weekdayType: weekdayType(for: dayOffset))
+        }
     }
 
     // MARK: Selectors
@@ -71,7 +91,7 @@ struct StatsView: View {
     private var selectors: some View {
         HStack(spacing: 10) {
             Menu {
-                ForEach(SampleData.locations) { loc in
+                ForEach(model.allLocations) { loc in
                     Button(loc.name) { locId = loc.id }
                 }
             } label: { dropdownLabel(locName) }
@@ -107,7 +127,7 @@ struct StatsView: View {
 
     private var hourlyChartCard: some View {
         let cols = Stats.chartHours.map { hour -> (label: String, ops: [(tile: RouteTile, wait: Int)]) in
-            (hour.label, tiles.map { ($0, Stats.wait(locationId: locId, dayOffset: dayOffset, opId: $0.id, hour: hour.hour)) })
+            (hour.label, tiles.map { ($0, waitFor($0, hour.hour)) })
         }
         let maxWait = max(cols.flatMap { $0.ops.map(\.wait) }.max() ?? 1, 1)
 
@@ -162,7 +182,7 @@ struct StatsView: View {
 
     private var bestWindowsCard: some View {
         let avgs = Stats.chartHours.map { hour -> (label: String, avg: Int) in
-            let waits = tiles.map { Stats.wait(locationId: locId, dayOffset: dayOffset, opId: $0.id, hour: hour.hour) }
+            let waits = tiles.map { waitFor($0, hour.hour) }
             let avg = waits.isEmpty ? 99 : Int((Double(waits.reduce(0, +)) / Double(waits.count)).rounded())
             return (hour.label, avg)
         }.sorted { $0.avg < $1.avg }
@@ -217,7 +237,7 @@ struct StatsView: View {
 
     private var allDayCard: some View {
         let opAvgs = tiles.map { t -> (tile: RouteTile, avg: Int) in
-            let total = Stats.chartHours.reduce(0) { $0 + Stats.wait(locationId: locId, dayOffset: dayOffset, opId: t.id, hour: $1.hour) }
+            let total = Stats.chartHours.reduce(0) { $0 + waitFor(t, $1.hour) }
             return (t, Int((Double(total) / Double(Stats.chartHours.count)).rounded()))
         }
         let maxAvg = max(opAvgs.map(\.avg).max() ?? 1, 1)

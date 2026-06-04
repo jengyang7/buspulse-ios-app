@@ -100,6 +100,21 @@ struct SupabaseDataSource: DataSource {
         }
     }
 
+    // MARK: Live activity (network-wide banner counters)
+
+    private struct ActivityRow: Decodable { let reports: Int; let active: Int }
+
+    func liveActivity() async throws -> LiveActivity {
+        // `live_activity()` is a SECURITY DEFINER function returning a single
+        // row; PostgREST surfaces it as a one-element array.
+        let rows: [ActivityRow] = try await client
+            .rpc("live_activity")
+            .execute()
+            .value
+        let r = rows.first
+        return LiveActivity(reports: r?.reports ?? 0, active: r?.active ?? 0)
+    }
+
     // MARK: Recent boarded waits (real sparkline for the detail screen)
 
     private struct WaitRow: Decodable { let started_at: String; let boarded_at: String }
@@ -121,6 +136,31 @@ struct SupabaseDataSource: DataSource {
             else { return nil }
             return max(1, Int(b.timeIntervalSince(s) / 60))
         }
+    }
+
+    // MARK: History (Stats screen)
+
+    private struct HistRow: Decodable {
+        let route_stop_id: String
+        let hour: Int
+        let median: Double?
+    }
+
+    func loadHistory(locationId: String, weekdayType: String) async throws -> [String: [Int: Int]] {
+        let rows: [HistRow] = try await client
+            .from("wait_history")
+            .select("route_stop_id,hour,median,route_stops!inner(location_id)")
+            .eq("route_stops.location_id", value: locationId)
+            .eq("weekday_type", value: weekdayType)
+            .execute()
+            .value
+
+        var map: [String: [Int: Int]] = [:]
+        for r in rows {
+            guard let m = r.median else { continue }
+            map[r.route_stop_id, default: [:]][r.hour] = Int(m.rounded())
+        }
+        return map
     }
 
     private static func parseDate(_ iso: String) -> Date? {

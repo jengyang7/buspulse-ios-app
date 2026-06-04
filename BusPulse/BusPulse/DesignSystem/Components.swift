@@ -103,20 +103,30 @@ struct MiniBadge: View {
 
 // MARK: - Crowd indicator
 
-struct CrowdIndicator: View {
+/// Just the three ascending bars, coloured by crowd level (no text label).
+struct CrowdBars: View {
     @Environment(\.theme) private var theme
+    let level: CrowdLevel
+    var scale: CGFloat = 1
+
+    var body: some View {
+        HStack(alignment: .bottom, spacing: 2 * scale) {
+            ForEach(0..<3, id: \.self) { i in
+                RoundedRectangle(cornerRadius: 1)
+                    .fill(i < level.bars ? level.color : theme.line)
+                    .frame(width: 3 * scale, height: (5 + CGFloat(i) * 3) * scale)
+            }
+        }
+    }
+}
+
+struct CrowdIndicator: View {
     let level: CrowdLevel
     let label: String
 
     var body: some View {
         HStack(spacing: 5) {
-            HStack(alignment: .bottom, spacing: 2) {
-                ForEach(0..<3, id: \.self) { i in
-                    RoundedRectangle(cornerRadius: 1)
-                        .fill(i < level.bars ? level.color : theme.line)
-                        .frame(width: 3, height: 5 + CGFloat(i) * 3)
-                }
-            }
+            CrowdBars(level: level)
             Text(label)
                 .font(AppFont.body(12, weight: .bold))
                 .foregroundStyle(level.color)

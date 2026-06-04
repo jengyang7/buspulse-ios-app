@@ -70,6 +70,11 @@ final class AppModel {
     private var tilesByLocation: [String: [RouteTile]] = SampleData.tiles
     /// Non-nil when the last backend load failed (UI may surface it).
     var loadError: String?
+    /// Network-wide counters for the home banner (all locations, last hour).
+    var liveActivity = LiveActivity(
+        reports: SampleData.allTiles.reduce(0) { $0 + $1.reports },
+        active: SampleData.allTiles.reduce(0) { $0 + $1.activeCount }
+    )
 
     init(dataSource: DataSource = MockDataSource()) {
         self.dataSource = dataSource
@@ -86,6 +91,9 @@ final class AppModel {
     }
     var totalReports: Int {
         (tilesByLocation[selectedLocationId] ?? []).reduce(0) { $0 + $1.reports }
+    }
+    var fastestTileId: String? {
+        tiles.min(by: { $0.estimate < $1.estimate })?.id
     }
 
     func locations(for direction: Direction) -> [Location] {
@@ -145,6 +153,7 @@ final class AppModel {
                 }
             }
             try await loadTiles(for: selectedLocationId)
+            await refreshLiveActivity()
             loadError = nil
         } catch {
             loadError = error.localizedDescription
@@ -185,6 +194,7 @@ final class AppModel {
                 try? await Task.sleep(for: .seconds(10))
                 guard let self else { return }
                 try? await self.loadTiles(for: self.selectedLocationId)
+                await self.refreshLiveActivity()
             }
         }
     }
@@ -193,9 +203,24 @@ final class AppModel {
         tilesByLocation[locationId] = try await dataSource.loadTiles(locationId: locationId)
     }
 
+    /// Refresh the network-wide banner counters; leaves the current value on failure.
+    private func refreshLiveActivity() async {
+        if let a = try? await dataSource.liveActivity() { liveActivity = a }
+    }
+
     /// Recent completed waits for a tile (real sparkline); [] if unavailable.
     func recentWaits(for routeStopId: String) async -> [Int] {
         (try? await dataSource.recentWaits(routeStopId: routeStopId)) ?? []
+    }
+
+    /// Tiles for any location (for the Stats picker, which is independent of Live).
+    func statsTiles(locationId: String) async -> [RouteTile] {
+        (try? await dataSource.loadTiles(locationId: locationId)) ?? SampleData.tiles(for: locationId)
+    }
+
+    /// Historical medians for the Stats screen; [:] if unavailable (UI falls back).
+    func history(locationId: String, weekdayType: String) async -> [String: [Int: Int]] {
+        (try? await dataSource.loadHistory(locationId: locationId, weekdayType: weekdayType)) ?? [:]
     }
 
     /// Fire-and-forget tile refresh for the current selection (used by setters).

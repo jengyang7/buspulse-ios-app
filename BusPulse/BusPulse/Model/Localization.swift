@@ -36,8 +36,8 @@ enum Strings {
 
     private static let table: [AppLanguage: [String: String]] = [
         .en: [
-            "tagline": "Real-time queue estimates from community",
-            "live": "Live · {n} reports in last 10 min",
+            "tagline": "Community-powered live bus queue estimates",
+            "live": "Live · {n} reports in last hour",
             "hint": "Tap a tile for details, or the play icon to queue instantly",
             "crowd_low": "Light", "crowd_med": "Moderate", "crowd_high": "Packed",
             "nextBus": "Next bus", "startQueue": "Start queue", "boarded": "I've boarded",
@@ -49,8 +49,8 @@ enum Strings {
             "logout": "Log out", "routes": "Routes in this queue",
         ],
         .zh: [
-            "tagline": "来自排队乘客的实时等待估算",
-            "live": "实时 · 过去10分钟 {n} 条报告",
+            "tagline": "社区驱动的实时巴士排队估算",
+            "live": "实时 · 过去一小时 {n} 条报告",
             "hint": "点按查看详情，或点播放图标立即排队",
             "crowd_low": "通畅", "crowd_med": "适中", "crowd_high": "拥挤",
             "nextBus": "下一班", "startQueue": "开始排队", "boarded": "我已上车",
@@ -62,8 +62,8 @@ enum Strings {
             "logout": "退出登录", "routes": "此队伍的路线",
         ],
         .ms: [
-            "tagline": "Anggaran tunggu langsung daripada penumpang",
-            "live": "Langsung · {n} laporan dalam 10 minit",
+            "tagline": "Anggaran barisan bas langsung dikuasai komuniti",
+            "live": "Langsung · {n} laporan dalam sejam",
             "hint": "Ketik untuk butiran, atau ikon main untuk terus beratur",
             "crowd_low": "Lengang", "crowd_med": "Sederhana", "crowd_high": "Padat",
             "nextBus": "Bas seterusnya", "startQueue": "Mula beratur", "boarded": "Saya dah naik",

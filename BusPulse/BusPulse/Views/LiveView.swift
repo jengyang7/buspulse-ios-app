@@ -22,7 +22,7 @@ struct LiveView: View {
             VStack(alignment: .leading, spacing: 0) {
                 VStack(spacing: 12) {
                     ForEach(Array(model.tiles.enumerated()), id: \.element.id) { index, tile in
-                        RouteTileRow(tile: tile)
+                        RouteTileRow(tile: tile, isFastest: tile.id == model.fastestTileId)
                             .opacity(appeared ? 1 : 0)
                             .offset(y: appeared ? 0 : 10)
                             .animation(.easeOut(duration: 0.5).delay(Double(index) * 0.07), value: appeared)
@@ -73,7 +73,7 @@ struct LiveView: View {
         HStack(alignment: .top) {
             VStack(alignment: .leading, spacing: 3) {
                 Wordmark(size: 22)
-                Text("\(model.greeting), \(firstName)")
+                Text(Strings.t("tagline", model.language))
                     .font(AppFont.body(11.5))
                     .foregroundStyle(theme.muted)
             }
@@ -91,10 +91,6 @@ struct LiveView: View {
             .clipShape(RoundedRectangle(cornerRadius: 10))
         }
         .padding(.bottom, 14)
-    }
-
-    private var firstName: String {
-        String(model.profileName.split(separator: " ").first ?? "")
     }
 
     // MARK: Location bar + picker
@@ -119,6 +115,7 @@ struct LiveView: View {
             .background(theme.card)
             .overlay(RoundedRectangle(cornerRadius: Radius.tile).stroke(theme.line, lineWidth: 1))
             .clipShape(RoundedRectangle(cornerRadius: Radius.tile))
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
     }
@@ -155,7 +152,11 @@ struct LiveView: View {
     private var liveBanner: some View {
         HStack(spacing: 7) {
             LiveDot()
-            Text(Strings.t("live", model.language, model.totalReports))
+            Text(Strings.t("live", model.language, model.liveActivity.reports))
+                .font(AppFont.body(12))
+                .foregroundStyle(theme.muted)
+            Text("·").foregroundStyle(theme.faint).font(AppFont.body(12))
+            Text("\(model.liveActivity.active) commuters active now")
                 .font(AppFont.body(12))
                 .foregroundStyle(theme.muted)
         }
@@ -169,6 +170,7 @@ private struct RouteTileRow: View {
     @Environment(AppModel.self) private var model
     @Environment(\.theme) private var theme
     let tile: RouteTile
+    var isFastest: Bool = false
 
     var body: some View {
         Button {
@@ -178,20 +180,31 @@ private struct RouteTileRow: View {
                 OperatorBadge(tile: tile)
 
                 VStack(alignment: .leading, spacing: 5) {
-                    HStack(alignment: .firstTextBaseline, spacing: 4) {
-                        Text("\(tile.low)–\(tile.high)")
-                            .font(AppFont.mono(24))
-                            .foregroundStyle(tile.crowd.color)
-                        Text("min")
-                            .font(AppFont.body(10.5))
-                            .foregroundStyle(theme.muted)
+                    if isFastest {
+                        Text("🏆 Fastest Now")
+                            .font(AppFont.body(10, weight: .bold))
+                            .foregroundStyle(Palette.gold)
+                            .padding(.horizontal, 6).padding(.vertical, 2)
+                            .background(Palette.gold.opacity(0.15))
+                            .clipShape(Capsule())
                     }
-                    CrowdIndicator(level: tile.crowd,
-                                   label: Strings.t(tile.crowd.labelKey, model.language))
+                    HStack(spacing: 7) {
+                        CrowdBars(level: tile.crowd)
+                        HStack(alignment: .firstTextBaseline, spacing: 4) {
+                            Text("\(tile.low)–\(tile.high)")
+                                .font(AppFont.mono(24))
+                                .foregroundStyle(tile.crowd.color)
+                            Text("min")
+                                .font(AppFont.body(10.5))
+                                .foregroundStyle(theme.muted)
+                        }
+                    }
                     Text("\(Strings.t("nextBus", model.language)) \(tile.next)m")
                         .font(AppFont.body(12))
                         .foregroundStyle(theme.muted)
-                    Text("\(tile.activeCount) timing now · updated \(tile.freshLabel)")
+                    Text(tile.isTypical
+                         ? "Typical for this time"
+                         : "\(tile.activeCount) timing now · updated \(tile.freshLabel)")
                         .font(AppFont.body(11))
                         .foregroundStyle(theme.faint)
                 }
@@ -215,7 +228,7 @@ private struct RouteTileRow: View {
         } label: {
             HStack(spacing: 6) {
                 Image(systemName: "play.fill").font(.system(size: 11))
-                Text("Queue").font(AppFont.body(12.5, weight: .bold))
+                Text("Join Queue").font(AppFont.body(12.5, weight: .bold))
             }
             .foregroundStyle(disabled ? theme.faint : Palette.gold)
             .padding(.horizontal, 14)

@@ -60,6 +60,9 @@ enum SampleData {
         (tiles[locationId] ?? []).sorted { $0.low < $1.low }
     }
 
+    /// Every tile across all locations (for network-wide counters).
+    static var allTiles: [RouteTile] { tiles.values.flatMap { $0 } }
+
     static func totalReports(for locationId: String) -> Int {
         (tiles[locationId] ?? []).reduce(0) { $0 + $1.reports }
     }

@@ -102,6 +102,11 @@ struct RouteTile: Identifiable, Hashable {
 
     var color: Color { Color(hex: colorHex) }
 
+    /// True when the estimate is driven purely by the historical baseline — no
+    /// one queuing and no recent reports — so the UI should say "typical for this
+    /// time" rather than a live "updated …" timestamp.
+    var isTypical: Bool { activeCount == 0 && reports == 0 }
+
     /// Human "updated X ago" — seconds under a minute, then minutes, then hours.
     var freshLabel: String {
         let s = max(fresh, 0)
