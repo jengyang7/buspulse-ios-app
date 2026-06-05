@@ -73,7 +73,20 @@ struct MockDataSource: DataSource {
     }
     func recentTrips() async throws -> [RecentTrip] { SampleData.recentTrips }
     func busArrivals(stopCode: String, services: [String]) async throws -> [BusArrival] { [] }
-    func loadHistory(locationId: String, weekdayType: String) async throws -> [String: [Int: Int]] { [:] }
+    func loadHistory(locationId: String, weekdayType: String) async throws -> [String: [Int: Int]] {
+        // Synthetic medians (5am–11pm) so #Previews and offline runs show a full
+        // chart. The live SupabaseDataSource returns real `wait_history` instead;
+        // empty hours there render an honest "not enough data" state in the UI.
+        var map: [String: [Int: Int]] = [:]
+        for tile in SampleData.tiles(for: locationId) {
+            var hours: [Int: Int] = [:]
+            for h in 5...23 {
+                hours[h] = Stats.wait(locationId: locationId, dayOffset: 0, opId: tile.id, hour: h)
+            }
+            map[tile.id] = hours
+        }
+        return map
+    }
     func routeWaitByHour(locationId: String, date: Date) async throws -> [String: [Int: Int]] {
         // Synthetic per-route curves (varied by date + route) for previews/offline.
         let seed = Int(date.timeIntervalSince1970 / 86_400) % 7
