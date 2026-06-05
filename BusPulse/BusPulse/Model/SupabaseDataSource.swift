@@ -10,6 +10,17 @@
 import Foundation
 import Supabase
 
+/// Errors surfaced by the live data source (kept minimal — most failures bubble
+/// up from the Supabase SDK directly).
+enum SupabaseError: LocalizedError {
+    case noProfile
+    var errorDescription: String? {
+        switch self {
+        case .noProfile: "Couldn't load your profile."
+        }
+    }
+}
+
 struct SupabaseDataSource: DataSource {
     var client: SupabaseClient = SupabaseConfig.client
 
@@ -160,6 +171,104 @@ struct SupabaseDataSource: DataSource {
         }
     }
 
+    // MARK: Profile summary (account screen stats)
+
+    private struct ProfileSummaryRow: Decodable {
+        let display_name: String?
+        let email: String?
+        let reward_points: Int
+        let trips_logged: Int
+        let reports_shared: Int
+        let avg_wait_min: Int
+    }
+
+    func loadProfileSummary() async throws -> UserProfile {
+        // `profile_summary()` is SECURITY DEFINER and scopes to auth.uid(); it
+        // returns a single row, surfaced by PostgREST as a one-element array.
+        let rows: [ProfileSummaryRow] = try await client
+            .rpc("profile_summary")
+            .execute()
+            .value
+        guard let r = rows.first else { throw SupabaseError.noProfile }
+        let fallbackName = r.email.map { String($0.prefix { $0 != "@" }) } ?? "Rider"
+        return UserProfile(
+            name: r.display_name ?? fallbackName,
+            email: r.email ?? "",
+            rewardPoints: r.reward_points,
+            tripsLogged: r.trips_logged,
+            reportsShared: r.reports_shared,
+            avgWaitMin: r.avg_wait_min
+        )
+    }
+
+    // MARK: Recent trips (boarded sessions, profile list)
+
+    private struct TripRow: Decodable {
+        let started_at: String
+        let boarded_at: String?
+        let route_stops: TripStopRow
+    }
+    private struct TripStopRow: Decodable {
+        let destination: String
+        let routes: TripRouteRow
+    }
+    private struct TripRouteRow: Decodable {
+        let badge: String
+        let operators: TripOperatorRow
+    }
+    private struct TripOperatorRow: Decodable {
+        let name: String
+        let color_hex: String
+    }
+
+    func recentTrips() async throws -> [RecentTrip] {
+        // RLS scopes queue_sessions to the owner, so this is already the user's trips.
+        let rows: [TripRow] = try await client
+            .from("queue_sessions")
+            .select("""
+                started_at,boarded_at,\
+                route_stops!inner(destination,\
+                routes!inner(badge,operators!inner(name,color_hex)))
+                """)
+            .eq("status", value: "boarded")
+            .order("boarded_at", ascending: false)
+            .limit(8)
+            .execute()
+            .value
+
+        return rows.compactMap { r in
+            guard let boardedStr = r.boarded_at,
+                  let boarded = Self.parseDate(boardedStr),
+                  let started = Self.parseDate(r.started_at) else { return nil }
+            let wait = max(1, Int(boarded.timeIntervalSince(started) / 60))
+            return RecentTrip(
+                badge: r.route_stops.routes.badge,
+                colorHex: r.route_stops.routes.operators.color_hex,
+                op: r.route_stops.routes.operators.name,
+                to: r.route_stops.destination,
+                wait: "\(wait)m",
+                when: Self.tripWhen(boarded)
+            )
+        }
+    }
+
+    /// "Today · 8:14am" / "Yesterday · 7:22pm" / "Mon · 5:45pm".
+    private static func tripWhen(_ date: Date) -> String {
+        let cal = Calendar.current
+        let time = DateFormatter()
+        time.dateFormat = "h:mma"
+        time.amSymbol = "am"; time.pmSymbol = "pm"
+        let clock = time.string(from: date)
+        let day: String
+        if cal.isDateInToday(date) { day = "Today" }
+        else if cal.isDateInYesterday(date) { day = "Yesterday" }
+        else {
+            let wd = DateFormatter(); wd.dateFormat = "EEE"
+            day = wd.string(from: date)
+        }
+        return "\(day) · \(clock)"
+    }
+
     // MARK: History (Stats screen)
 
     private struct HistRow: Decodable {
@@ -183,6 +292,36 @@ struct SupabaseDataSource: DataSource {
             map[r.route_stop_id, default: [:]][r.hour] = Int(m.rounded())
         }
         return map
+    }
+
+    // MARK: Per-route, per-hour wait curve (Stats today-vs-last-week chart)
+
+    private struct WaitHourRow: Decodable {
+        let route_stop_id: String
+        let hour: Int
+        let wait: Int
+        let sample_count: Int
+    }
+
+    func routeWaitByHour(locationId: String, date: Date) async throws -> [String: [Int: Int]] {
+        let rows: [WaitHourRow] = try await client
+            .rpc("route_wait_by_hour",
+                 params: ["p_location_id": locationId, "p_date": Self.sgDateString(date)])
+            .execute()
+            .value
+        var out: [String: [Int: Int]] = [:]
+        for r in rows { out[r.route_stop_id, default: [:]][r.hour] = r.wait }
+        return out
+    }
+
+    /// "yyyy-MM-dd" for `date` in Singapore local time — the calendar day the RPC buckets by.
+    private static func sgDateString(_ date: Date) -> String {
+        let f = DateFormatter()
+        f.calendar = Calendar(identifier: .gregorian)
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.timeZone = TimeZone(identifier: "Asia/Singapore")
+        f.dateFormat = "yyyy-MM-dd"
+        return f.string(from: date)
     }
 
     private static func parseDate(_ iso: String) -> Date? {

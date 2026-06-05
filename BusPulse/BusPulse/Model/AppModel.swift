@@ -58,9 +58,14 @@ final class AppModel {
     var locationAccessOn = true
     var autoDetectBoarding = true
 
-    // Profile
+    // Profile — seeded from SampleData for previews/offline, replaced by loadProfile().
     var profileName = "Jayden Kong"
     var profileEmail = "jayden@buspulse.app"
+    var rewardPoints = SampleData.rewardPoints
+    var tripsLogged = 42
+    var reportsShared = 318
+    var avgWaitMin = 17
+    var recentTrips: [RecentTrip] = SampleData.recentTrips
 
     var theme: Theme { appearance.theme }
     var colorScheme: ColorScheme { appearance == .dark ? .dark : .light }
@@ -168,6 +173,7 @@ final class AppModel {
             }
             try await loadTiles(for: selectedLocationId)
             await refreshLiveActivity()
+            await loadProfile()
             loadError = nil
         } catch {
             loadError = error.localizedDescription
@@ -281,6 +287,22 @@ final class AppModel {
         if let a = try? await dataSource.liveActivity() { liveActivity = a }
     }
 
+    /// Load the signed-in user's profile + recent trips for the account screen.
+    /// Leaves the seeded values in place on failure (e.g. offline / signed out).
+    func loadProfile() async {
+        if let p = try? await dataSource.loadProfileSummary() {
+            profileName = p.name
+            profileEmail = p.email
+            rewardPoints = p.rewardPoints
+            tripsLogged = p.tripsLogged
+            reportsShared = p.reportsShared
+            avgWaitMin = p.avgWaitMin
+        }
+        if let trips = try? await dataSource.recentTrips() {
+            recentTrips = trips
+        }
+    }
+
     /// Recent completed waits for a tile (real sparkline); [] if unavailable.
     func recentWaits(for routeStopId: String) async -> [Int] {
         (try? await dataSource.recentWaits(routeStopId: routeStopId)) ?? []
@@ -300,6 +322,12 @@ final class AppModel {
     /// Historical medians for the Stats screen; [:] if unavailable (UI falls back).
     func history(locationId: String, weekdayType: String) async -> [String: [Int: Int]] {
         (try? await dataSource.loadHistory(locationId: locationId, weekdayType: weekdayType)) ?? [:]
+    }
+
+    /// Per-route, per-hour median wait (min) for a location on one day, keyed
+    /// [routeStopId: [hour: median]]; [:] if unavailable.
+    func routeWaitByHour(locationId: String, date: Date) async -> [String: [Int: Int]] {
+        (try? await dataSource.routeWaitByHour(locationId: locationId, date: date)) ?? [:]
     }
 
     /// Fire-and-forget tile refresh for the current selection (used by setters).
@@ -382,6 +410,8 @@ final class AppModel {
         if let sid = sessionId {
             Task { [weak self] in
                 try? await self?.dataSource.board(sessionId: sid)
+                // Points + trip counts changed — refresh the profile stats.
+                await self?.loadProfile()
             }
         }
     }

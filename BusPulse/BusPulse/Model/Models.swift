@@ -132,6 +132,18 @@ struct RouteTile: Identifiable, Hashable {
 
     /// The tile bundles multiple route numbers (e.g. SBS family) — show the chip list.
     var showsRoutes: Bool { lines.count > 1 || lines.first != badge }
+
+    /// Wait range floored by the soonest boardable arrival: you can't board before
+    /// the first bus arrives, so neither end of the range can sit below it. The
+    /// high end still opens up to at least the (floored) central estimate. Shared
+    /// by the home tile and the detail hero so they always agree. `nil` arrival
+    /// leaves the crowd-estimate range untouched.
+    func flooredRange(soonestArrival: Int?) -> (low: Int, high: Int) {
+        let est = max(estimate, soonestArrival ?? 0)
+        let lo = min(max(low, soonestArrival ?? low), est)
+        let hi = max(high, est)
+        return (lo, hi)
+    }
 }
 
 // MARK: - Live bus arrivals (LTA DataMall)
@@ -168,6 +180,18 @@ struct BusArrival: Identifiable {
     var id: String { service }
     let service: String
     let etas: [ArrivalEta]
+}
+
+// MARK: - User profile (account screen)
+
+/// The signed-in user's account stats, from `profile_summary()`.
+struct UserProfile: Sendable, Equatable {
+    var name: String
+    var email: String
+    var rewardPoints: Int
+    var tripsLogged: Int     // every queue started (any status)
+    var reportsShared: Int   // boards that fed the estimate
+    var avgWaitMin: Int      // mean boarded wait, minutes
 }
 
 // MARK: - Recent trip (profile)

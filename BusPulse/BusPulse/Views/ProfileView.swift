@@ -36,6 +36,7 @@ struct ProfileView: View {
             }
         }
         .background(theme.bg)
+        .task { await model.loadProfile() }
     }
 
     private var proCard: some View {
@@ -68,10 +69,10 @@ struct ProfileView: View {
     private var statGrid: some View {
         let columns = [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)]
         return LazyVGrid(columns: columns, spacing: 12) {
-            statCard("17m", "avg wait")
-            statCard("42", "trips logged")
-            statCard("318", "riders helped")
-            statCard("🌿 \(SampleData.rewardPoints.formatted())", "reward pts")
+            statCard("\(model.avgWaitMin)m", "avg wait")
+            statCard("\(model.tripsLogged)", "trips logged")
+            statCard("\(model.reportsShared)", "reports shared")
+            statCard("🌿 \(model.rewardPoints.formatted())", "reward pts")
         }
     }
 
@@ -92,7 +93,15 @@ struct ProfileView: View {
                 .font(AppFont.body(11, weight: .bold)).tracking(0.5)
                 .foregroundStyle(theme.muted)
                 .padding(.top, 6)
-            ForEach(SampleData.recentTrips) { trip in
+            if model.recentTrips.isEmpty {
+                ThemedCard(padding: 16) {
+                    Text("No trips yet — start a queue and tap “I've boarded” to log your first.")
+                        .font(AppFont.body(12.5))
+                        .foregroundStyle(theme.muted)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
+            ForEach(model.recentTrips) { trip in
                 ThemedCard(padding: 12) {
                     HStack(spacing: 12) {
                         MiniBadge(badge: trip.badge, colorHex: trip.colorHex, side: 40)

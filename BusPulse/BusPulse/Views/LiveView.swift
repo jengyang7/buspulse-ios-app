@@ -22,7 +22,9 @@ struct LiveView: View {
             VStack(alignment: .leading, spacing: 0) {
                 VStack(spacing: 12) {
                     ForEach(Array(model.tiles.enumerated()), id: \.element.id) { index, tile in
-                        RouteTileRow(tile: tile, isFastest: tile.id == model.fastestTileId)
+                        // Only flag the fastest when there's an actual choice to make.
+                        RouteTileRow(tile: tile,
+                                     isFastest: model.tiles.count > 1 && tile.id == model.fastestTileId)
                             .opacity(appeared ? 1 : 0)
                             .offset(y: appeared ? 0 : 10)
                             .animation(.easeOut(duration: 0.5).delay(Double(index) * 0.07), value: appeared)
@@ -83,7 +85,7 @@ struct LiveView: View {
             Spacer()
             HStack(spacing: 4) {
                 Text("🌿")
-                Text(SampleData.rewardPoints.formatted())
+                Text(model.rewardPoints.formatted())
                     .font(AppFont.body(11, weight: .bold))
                     .foregroundStyle(theme.text)
             }
@@ -191,10 +193,16 @@ private struct RouteTileRow: View {
                             .background(Palette.gold.opacity(0.15))
                             .clipShape(Capsule())
                     }
+                    // Observe ltaTick so the row re-renders on each LTA refresh. The
+                    // displayed range is floored by the soonest arrival (same rule as
+                    // the detail hero) — you can't board before the next bus arrives.
+                    let _ = model.ltaTick
+                    let nextBus = tile.crossBorder ? nil : model.ltaNextBus[tile.id]
+                    let range = tile.flooredRange(soonestArrival: nextBus)
                     HStack(spacing: 7) {
                         CrowdBars(level: tile.crowd)
                         HStack(alignment: .firstTextBaseline, spacing: 4) {
-                            Text("\(tile.low)–\(tile.high)")
+                            Text("\(range.low)–\(range.high)")
                                 .font(AppFont.mono(24))
                                 .foregroundStyle(tile.crowd.color)
                             Text("min")
@@ -202,7 +210,6 @@ private struct RouteTileRow: View {
                                 .foregroundStyle(theme.muted)
                         }
                     }
-                    let _ = model.ltaTick       // observe so the row re-renders each LTA refresh
                     if !tile.crossBorder, tile.ltaStopCode != nil {
                         if let nextMin = model.ltaNextBus[tile.id] {
                             Text(nextMin <= 0

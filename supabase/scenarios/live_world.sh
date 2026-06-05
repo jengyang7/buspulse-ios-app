@@ -13,12 +13,21 @@ PSQL() { docker exec -i supabase_db_buspulse psql -U postgres -d postgres -At "$
 DURATION_MIN="${1:-0}"               # 0 = forever
 TICK=12                              # seconds between events
 
-# Tiles the simulated world covers (location route — weighted by repetition).
-TILES=(
-  "woodlands_ckpt ac7" "woodlands_ckpt cw" "woodlands_ckpt cw" "woodlands_ckpt sbs"
-  "jbciq cw" "jbciq cw" "jbciq sbs" "jbciq 950"
-  "kranji cw" "kranji sbs" "larkin sbs" "larkin cw"
-)
+# Tiles the simulated world covers. Built from the DB so EVERY active route_stop
+# is included (new locations/routes are picked up automatically), then the busy
+# crossing tiles get extra weight for realism.
+TILES=()
+while IFS= read -r line; do
+  [ -n "$line" ] && TILES+=("$line")
+done < <(PSQL -c "select location_id || ' ' || route_id from route_stops where active order by location_id, route_id;")
+# Extra weight on the high-traffic checkpoints (purely for a livelier feed).
+TILES+=( "woodlands_ckpt cw" "woodlands_ckpt sbs" "jbciq cw" "jbciq sbs" )
+
+if [ "${#TILES[@]}" -eq 0 ]; then
+  echo "No active route_stops found — is the DB seeded? (supabase db reset)" >&2
+  exit 1
+fi
+echo "covering ${#TILES[@]} tile slots across all active route_stops"
 rs_id() { PSQL -c "select id from route_stops where location_id='$1' and route_id='$2';"; }
 
 echo "=== seeding a pool of 20 commuters ==="

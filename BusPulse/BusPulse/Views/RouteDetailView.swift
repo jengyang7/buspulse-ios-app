@@ -26,8 +26,11 @@ struct RouteDetailView: View {
         model.tiles.first { $0.id == initial.id } ?? initial
     }
 
-    /// Real recent boarded waits when available, else the synthetic sparkline.
-    private var spark: [Int] { realSpark.isEmpty ? Estimate.spark(tile) : realSpark }
+    /// Whether there are enough real reports to plot a meaningful trend. With one
+    /// or two we'd just draw a lone block, so we fall back to the typical pattern.
+    private var hasRealSpark: Bool { realSpark.count >= 3 }
+    /// Real recent boarded waits when there are enough, else the synthetic sparkline.
+    private var spark: [Int] { hasRealSpark ? realSpark : Estimate.spark(tile) }
 
     // MARK: Reconcile the crowd estimate with live arrivals
     // You can't board before the first bus arrives, so the wait can't be shorter
@@ -43,8 +46,8 @@ struct RouteDetailView: View {
     }
     /// Estimate floored by the soonest arrival; low/high follow it.
     private var estAdj: Int { max(tile.estimate, soonestArrival ?? 0) }
-    private var lowAdj: Int { min(max(tile.low, soonestArrival ?? tile.low), estAdj) }
-    private var highAdj: Int { max(tile.high, estAdj) }
+    private var lowAdj: Int { tile.flooredRange(soonestArrival: soonestArrival).low }
+    private var highAdj: Int { tile.flooredRange(soonestArrival: soonestArrival).high }
     /// True when live arrivals pushed the estimate up (the otherwise-impossible case).
     private var arrivalFloored: Bool { (soonestArrival ?? 0) > tile.estimate }
 
@@ -310,11 +313,11 @@ struct RouteDetailView: View {
         return ThemedCard {
             VStack(alignment: .leading, spacing: 12) {
                 HStack {
-                    Text(realSpark.isEmpty ? "Typical wait pattern" : "Recent reported waits")
+                    Text(hasRealSpark ? "Recent reported waits" : "Typical wait pattern")
                         .font(AppFont.body(13, weight: .bold))
                         .foregroundStyle(theme.text)
                     Spacer()
-                    Text(realSpark.isEmpty ? "usual for this time" : "last 30 min · newest →")
+                    Text(hasRealSpark ? "last 30 min · newest →" : "usual for this time")
                         .font(AppFont.body(11))
                         .foregroundStyle(theme.muted)
                 }
@@ -322,12 +325,16 @@ struct RouteDetailView: View {
                     ForEach(Array(spark.enumerated()), id: \.offset) { i, v in
                         RoundedRectangle(cornerRadius: 4)
                             .fill(i == spark.count - 1 ? tile.crowd.color : theme.line)
-                            .frame(maxWidth: .infinity)
-                            .frame(height: CGFloat(v) / CGFloat(maxV) * 70)
+                            // Cap width so few bars render as a left-aligned mini-chart
+                            // rather than one stretched block; floor height so short
+                            // waits stay visible.
+                            .frame(maxWidth: 38)
+                            .frame(height: max(8, CGFloat(v) / CGFloat(maxV) * 70))
                             .scaleEffect(y: barsGrown ? 1 : 0, anchor: .bottom)
                             .animation(.easeOut(duration: 0.4).delay(Double(i) * 0.045), value: barsGrown)
                     }
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
                 .frame(height: 70, alignment: .bottom)
                 .onAppear { barsGrown = true }
             }
