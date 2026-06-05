@@ -24,6 +24,8 @@ protocol DataSource: Sendable {
     func liveActivity() async throws -> LiveActivity
     /// Recent completed waits (minutes, oldest→newest) for the detail sparkline.
     func recentWaits(routeStopId: String) async throws -> [Int]
+    /// Live LTA arrivals (next 3 per service) at a bus stop, filtered to `services`.
+    func busArrivals(stopCode: String, services: [String]) async throws -> [BusArrival]
     /// Historical median wait (min) for a location's tiles, keyed
     /// [routeStopId: [hour: median]], for the given weekday type ("weekday"/"weekend").
     func loadHistory(locationId: String, weekdayType: String) async throws -> [String: [Int: Int]]
@@ -56,6 +58,7 @@ struct MockDataSource: DataSource {
                      active: SampleData.allTiles.reduce(0) { $0 + $1.activeCount })
     }
     func recentWaits(routeStopId: String) async throws -> [Int] { [] }
+    func busArrivals(stopCode: String, services: [String]) async throws -> [BusArrival] { [] }
     func loadHistory(locationId: String, weekdayType: String) async throws -> [String: [Int: Int]] { [:] }
     func estimateChanges() -> AsyncStream<Void> {
         AsyncStream { $0.finish() }            // static data — never changes

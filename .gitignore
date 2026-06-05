@@ -41,3 +41,6 @@ xcuserdata/
 DerivedData/
 *.moved-aside
 .swiftpm/
+
+# Supabase edge function secrets
+supabase/functions/.env

@@ -71,6 +71,22 @@ from (values
 join route_stops rs
   on rs.location_id = v.location_id and rs.route_id = v.route_id;
 
+-- Real-world data corrections (LTA stop codes, bus sets, destinations).
+-- Cross-border stops (CW / AC7) aren't in LTA DataMall, so they get no code.
+update route_stops set lta_stop_code = '46109' where location_id = 'woodlands_ckpt' and route_id = 'sbs';
+update route_stops set lta_stop_code = '45139' where location_id = 'kranji'         and route_id = 'sbs';
+update route_stops set lta_stop_code = '47009' where location_id = 'woodlands_ti'   and route_id = '950';
+update route_stops set lta_stop_code = '46219' where location_id = 'jbciq'          and route_id in ('sbs','950');
+update route_stops set lta_stop_code = '46239' where location_id = 'larkin'         and route_id = 'sbs';
+
+-- Kranji cross-border set heading to the Causeway: 160 / 170X / 170.
+update route_stops set lines = array['160','170X','170'] where location_id = 'kranji' and route_id = 'sbs';
+
+-- Destinations (immediate next major stop in the travel direction).
+update route_stops set destination = 'Woodlands Checkpoint'       where location_id in ('kranji','jbciq');
+update route_stops set destination = 'Woodlands Train Checkpoint' where location_id = 'woodlands_ti' and route_id = '950';
+update route_stops set destination = 'JB Sentral CIQ'             where location_id = 'larkin';
+
 -- Historical prior (Phase 2): seed a per-tile × weekday × hour baseline from the
 -- estimates above, then recompute every tile so quiet tiles show the "typical
 -- for this time" estimate immediately (not the static seed).

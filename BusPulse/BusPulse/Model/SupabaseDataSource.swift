@@ -55,6 +55,7 @@ struct SupabaseDataSource: DataSource {
         let id: String
         let lines: [String]
         let destination: String
+        let lta_stop_code: String?
         let routes: RouteRow
     }
     private struct RouteRow: Decodable {
@@ -71,7 +72,7 @@ struct SupabaseDataSource: DataSource {
             .from("wait_estimates")
             .select("""
                 low,high,estimate,crowd,confidence,n_eff,active_count,updated_at,\
-                route_stops!inner(id,lines,destination,location_id,active,\
+                route_stops!inner(id,lines,destination,location_id,active,lta_stop_code,\
                 routes!inner(badge,operators!inner(name,color_hex)))
                 """)
             .eq("route_stops.location_id", value: locationId)
@@ -95,8 +96,29 @@ struct SupabaseDataSource: DataSource {
                 fresh: Self.secondsSince(r.updated_at),
                 estimate: r.estimate,
                 confidence: r.confidence,
-                activeCount: r.active_count
+                activeCount: r.active_count,
+                ltaStopCode: r.route_stops.lta_stop_code
             )
+        }
+    }
+
+    // MARK: Live bus arrivals (LTA DataMall via edge function)
+
+    private struct ArrivalsRequest: Encodable { let stop_code: String; let services: [String] }
+    private struct ArrivalsResponse: Decodable { let arrivals: [ArrivalDTO] }
+    private struct ArrivalDTO: Decodable { let service: String; let etas: [EtaDTO] }
+    private struct EtaDTO: Decodable { let min: Int?; let load: String }
+
+    func busArrivals(stopCode: String, services: [String]) async throws -> [BusArrival] {
+        let res: ArrivalsResponse = try await client.functions.invoke(
+            "bus-arrivals",
+            options: FunctionInvokeOptions(
+                body: ArrivalsRequest(stop_code: stopCode, services: services))
+        )
+        return res.arrivals.map { dto in
+            BusArrival(service: dto.service,
+                       etas: dto.etas.map { ArrivalEta(minutes: $0.min,
+                                                       load: BusLoad(rawValue: $0.load) ?? .unknown) })
         }
     }
 

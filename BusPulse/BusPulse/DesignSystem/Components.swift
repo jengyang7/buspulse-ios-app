@@ -145,6 +145,8 @@ struct LineChips: View {
             ForEach(tile.lines, id: \.self) { line in
                 Text(line)
                     .font(AppFont.display(small ? 11 : 13))
+                    .lineLimit(1)
+                    .fixedSize(horizontal: true, vertical: false)
                     .padding(.horizontal, 8)
                     .padding(.vertical, 2)
                     .foregroundStyle(tile.color)

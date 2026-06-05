@@ -14,6 +14,9 @@ struct RouteDetailView: View {
     private let initial: RouteTile
     @State private var barsGrown = false
     @State private var realSpark: [Int] = []
+    @State private var arrivals: [BusArrival]?    // nil = loading; [] = none
+    @State private var arrivalsUpdatedAt: Date?
+    @State private var refreshing = false
 
     init(tile: RouteTile) { self.initial = tile }
 
@@ -26,6 +29,25 @@ struct RouteDetailView: View {
     /// Real recent boarded waits when available, else the synthetic sparkline.
     private var spark: [Int] { realSpark.isEmpty ? Estimate.spark(tile) : realSpark }
 
+    // MARK: Reconcile the crowd estimate with live arrivals
+    // You can't board before the first bus arrives, so the wait can't be shorter
+    // than the soonest *boardable* bus (prefer one that isn't packed). The high
+    // end is left open — Causeway traffic and clearance can stretch it.
+
+    /// Soonest boardable bus across all live services (minutes), if any.
+    private var soonestArrival: Int? {
+        guard let arrivals, !arrivals.isEmpty else { return nil }
+        let etas = arrivals.flatMap(\.etas)
+        let notPacked = etas.filter { $0.load != .high }.compactMap(\.minutes)
+        return notPacked.min() ?? etas.compactMap(\.minutes).min()
+    }
+    /// Estimate floored by the soonest arrival; low/high follow it.
+    private var estAdj: Int { max(tile.estimate, soonestArrival ?? 0) }
+    private var lowAdj: Int { min(max(tile.low, soonestArrival ?? tile.low), estAdj) }
+    private var highAdj: Int { max(tile.high, estAdj) }
+    /// True when live arrivals pushed the estimate up (the otherwise-impossible case).
+    private var arrivalFloored: Bool { (soonestArrival ?? 0) > tile.estimate }
+
     var body: some View {
         VStack(spacing: 0) {
             navBar
@@ -34,6 +56,7 @@ struct RouteDetailView: View {
                 VStack(spacing: 14) {
                     hero
                     if tile.showsRoutes { routesCard }
+                    arrivalsCard
                     sourceCard
                     sparkCard
                     boardButton
@@ -46,6 +69,124 @@ struct RouteDetailView: View {
         }
         .background(theme.bg)
         .task(id: tile.id) { realSpark = await model.recentWaits(for: tile.id) }
+        .task(id: tile.id) {
+            // Live arrivals fetch immediately, then refresh once per minute (a
+            // couple seconds past :00) while the screen is open. Skipped for
+            // cross-border / unmapped tiles (static note).
+            guard !tile.crossBorder, tile.ltaStopCode != nil else { return }
+            while !Task.isCancelled {
+                arrivals = await model.arrivals(for: tile)
+                arrivalsUpdatedAt = Date()
+                try? await Task.sleep(for: .seconds(AppModel.secondsToNextTick()))
+            }
+        }
+    }
+
+    // MARK: Live arrivals (LTA DataMall)
+
+    /// Whether live arrivals can actually be fetched for this tile.
+    private var hasLiveArrivals: Bool { !tile.crossBorder && tile.ltaStopCode != nil }
+
+    private var arrivalsCard: some View {
+        ThemedCard {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(spacing: 8) {
+                    Text("Live bus arrivals")
+                        .font(AppFont.body(13, weight: .bold))
+                        .foregroundStyle(theme.text)
+                    Spacer()
+                    // Only LTA-served tiles get the source / freshness label; for
+                    // cross-border or unmapped tiles there's no live feed to credit.
+                    if hasLiveArrivals {
+                        if let updatedAt = arrivalsUpdatedAt {
+                            let secs = max(0, Int(Date().timeIntervalSince(updatedAt)))
+                            Text("updated \(secs < 60 ? "\(secs)s" : "\(secs / 60)m") ago")
+                                .font(AppFont.body(10.5))
+                                .foregroundStyle(theme.faint)
+                        } else {
+                            Text("LTA DataMall")
+                                .font(AppFont.body(10.5))
+                                .foregroundStyle(theme.faint)
+                        }
+                        refreshButton
+                    }
+                }
+                arrivalsBody
+            }
+        }
+    }
+
+    private var refreshButton: some View {
+        Button { refreshArrivals() } label: {
+            Image(systemName: "arrow.clockwise")
+                .font(.system(size: 12, weight: .bold))
+                .foregroundStyle(refreshing ? theme.faint : Palette.blue)
+                .rotationEffect(.degrees(refreshing ? 360 : 0))
+                .animation(refreshing
+                    ? .linear(duration: 0.8).repeatForever(autoreverses: false)
+                    : .default, value: refreshing)
+                .frame(width: 28, height: 28)
+                .background(theme.card2)
+                .clipShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .disabled(refreshing)
+    }
+
+    private func refreshArrivals() {
+        guard hasLiveArrivals, !refreshing else { return }
+        refreshing = true
+        Task {
+            arrivals = await model.arrivals(for: tile)
+            arrivalsUpdatedAt = Date()
+            refreshing = false
+        }
+    }
+
+    @ViewBuilder private var arrivalsBody: some View {
+        if tile.crossBorder {
+            arrivalsNote("Live arrivals not available for this bus operator.")
+        } else if tile.ltaStopCode == nil {
+            arrivalsNote("Live arrivals not configured for this stop yet.")
+        } else if let arrivals {
+            if arrivals.isEmpty {
+                arrivalsNote("No buses arriving right now.")
+            } else {
+                VStack(spacing: 8) {
+                    ForEach(arrivals) { arrivalRow($0) }
+                }
+            }
+        } else {
+            arrivalsNote("Loading live arrivals…")
+        }
+    }
+
+    private func arrivalRow(_ a: BusArrival) -> some View {
+        HStack(spacing: 10) {
+            Text(a.service)
+                .font(AppFont.display(14))
+                .foregroundStyle(theme.text)
+                .frame(minWidth: 44, alignment: .leading)
+            Spacer()
+            ForEach(a.etas) { eta in
+                Text(eta.label)
+                    .font(AppFont.mono(13))
+                    .foregroundStyle(eta.minutes == nil ? theme.faint : eta.load.color)
+                    .frame(minWidth: 40)
+            }
+        }
+        .padding(.vertical, 10)
+        .padding(.horizontal, 12)
+        .background(theme.card2)
+        .clipShape(RoundedRectangle(cornerRadius: 12))
+    }
+
+    private func arrivalsNote(_ text: String) -> some View {
+        Text(text)
+            .font(AppFont.body(12))
+            .foregroundStyle(theme.muted)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.vertical, 4)
     }
 
     // MARK: Nav bar
@@ -71,7 +212,7 @@ struct RouteDetailView: View {
             VStack(spacing: 10) {
                 OperatorBadge(tile: tile, large: true)
                 HStack(alignment: .firstTextBaseline, spacing: 6) {
-                    Text("\(tile.low)–\(tile.high)")
+                    Text("\(lowAdj)–\(highAdj)")
                         .font(AppFont.mono(46))
                         .foregroundStyle(tile.crowd.color)
                     Text("min")
@@ -84,10 +225,18 @@ struct RouteDetailView: View {
                 HStack(spacing: 8) {
                     CrowdIndicator(level: tile.crowd,
                                    label: Strings.t(tile.crowd.labelKey, model.language))
-                    Text("·").foregroundStyle(theme.faint)
-                    Text("🕒 \(Strings.t("nextBus", model.language)) \(tile.next)m")
-                        .font(AppFont.body(12))
-                        .foregroundStyle(theme.muted)
+                    if let next = soonestArrival {
+                        Text("·").foregroundStyle(theme.faint)
+                        Text("🕒 \(Strings.t("nextBus", model.language)) \(next)m")
+                            .font(AppFont.body(12))
+                            .foregroundStyle(theme.muted)
+                    }
+                }
+                if arrivalFloored, let next = soonestArrival {
+                    Text("Matched to the next bus — you can't board before it arrives (\(next)m)")
+                        .font(AppFont.body(10.5))
+                        .foregroundStyle(Palette.blue)
+                        .multilineTextAlignment(.center)
                 }
             }
             .frame(maxWidth: .infinity)

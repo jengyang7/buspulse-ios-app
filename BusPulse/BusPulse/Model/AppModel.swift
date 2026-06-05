@@ -31,6 +31,7 @@ final class AppModel {
         didSet {
             selectedLocationId = firstLocationId(for: direction)
             reloadSelectedTiles()
+            restartLtaPolling()
         }
     }
     var selectedLocationId: String = SampleData.firstLocation(for: .sgToMy).id
@@ -41,6 +42,9 @@ final class AppModel {
     var minimized = false
     private var queueOrigin: Flow?           // where the queue was started from
     private var timerTask: Task<Void, Never>?
+    /// Wall-clock start of the active queue. Elapsed is derived from this so the
+    /// timer stays accurate across app backgrounding (when the tick loop freezes).
+    private var queueStartedAt: Date?
     private var sessionId: String?           // backend queue_sessions.id, if any
 
     // Auth UI state
@@ -64,6 +68,15 @@ final class AppModel {
     // MARK: - Data source
 
     private let dataSource: DataSource
+
+    // LTA next-bus cache — populated by the background poller on the home screen
+    // for every LTA-served (non-cross-border) tile. Keyed by tile.id.
+    private(set) var ltaNextBus: [String: Int] = [:]
+    private(set) var ltaFetchedAt: [String: Date] = [:]
+    /// Bumped after each LTA refresh so views observing it re-render even when a
+    /// dictionary mutation alone wouldn't invalidate them.
+    private(set) var ltaTick = 0
+    private var ltaTask: Task<Void, Never>?
     /// All known locations — seeded from SampleData, replaced by `load()`.
     var allLocations: [Location] = SampleData.locations
     /// Tiles keyed by location id — seeded from SampleData, replaced by `load()`.
@@ -132,6 +145,7 @@ final class AppModel {
     func selectLocation(_ id: String) {
         selectedLocationId = id
         reloadSelectedTiles()
+        restartLtaPolling()
     }
 
     // MARK: - Data loading
@@ -172,6 +186,7 @@ final class AppModel {
     private func startLiveUpdates() {
         startObservingEstimates()
         startPolling()
+        startLtaPolling()
     }
 
     /// Realtime push: reload the visible location whenever a wait_estimates row
@@ -187,16 +202,74 @@ final class AppModel {
     }
 
     /// Fallback poll so tiles stay live even if Realtime drops or is filtered.
+    /// Fires once per minute (a couple seconds past :00) in step with the other refreshes.
     private func startPolling() {
         guard pollTask == nil else { return }
         pollTask = Task { [weak self] in
             while !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(10))
+                try? await Task.sleep(for: .seconds(Self.secondsToNextTick()))
                 guard let self else { return }
                 try? await self.loadTiles(for: self.selectedLocationId)
                 await self.refreshLiveActivity()
             }
         }
+    }
+
+    /// Polls LTA arrivals for the visible tiles once per minute (a couple seconds
+    /// past :00). Idempotent — only one loop runs at a time.
+    private func startLtaPolling() {
+        guard ltaTask == nil else { return }
+        ltaTask = Task { [weak self] in
+            while !Task.isCancelled {
+                guard let self else { return }
+                await self.refreshLtaForVisibleTiles()
+                try? await Task.sleep(for: .seconds(Self.secondsToNextTick()))
+            }
+        }
+    }
+
+    /// Seconds to sleep until the next refresh tick — the next sharp minute plus a
+    /// short settle delay so LTA DataMall has published the new minute's data and
+    /// clients don't all hit the API at exactly :00. Polls land around :02.
+    static func secondsToNextTick() -> Int {
+        let s = Calendar.current.component(.second, from: Date())
+        let settle = 2
+        return (60 - s) + settle
+    }
+
+    /// Fetch LTA next-bus times for the visible tiles right now (used on app open
+    /// and tab return so the home screen doesn't wait for the next tick).
+    func refreshNextBus() async {
+        await refreshLtaForVisibleTiles()
+    }
+
+    /// Cancel the running LTA loop, clear stale cache, and start fresh.
+    /// Call this when the selected location or direction changes.
+    private func restartLtaPolling() {
+        ltaTask?.cancel()
+        ltaTask = nil
+        ltaNextBus = [:]
+        ltaFetchedAt = [:]
+        startLtaPolling()
+    }
+
+    /// Fetch LTA arrivals for every LTA-served tile (SBS, 950, etc. — anything
+    /// that isn't cross-border and has an ltaStopCode), updating ltaNextBus with
+    /// the soonest non-packed arrival (or any, if all are packed).
+    private func refreshLtaForVisibleTiles() async {
+        let ltaTiles = tiles.filter { !$0.crossBorder && $0.ltaStopCode != nil }
+        let now = Date()
+        for tile in ltaTiles {
+            let results = await arrivals(for: tile)
+            let etas = results.flatMap(\.etas)
+            let soonest = etas.filter { $0.load != .high }.compactMap(\.minutes).min()
+                       ?? etas.compactMap(\.minutes).min()
+            // Always stamp fetchedAt (marks the tile as "checked", so the UI can
+            // drop the "checking…" placeholder); only set a value when a bus exists.
+            ltaFetchedAt[tile.id] = now
+            if let m = soonest { ltaNextBus[tile.id] = m }
+        }
+        ltaTick &+= 1                       // nudge observers to re-render
     }
 
     private func loadTiles(for locationId: String) async throws {
@@ -211,6 +284,12 @@ final class AppModel {
     /// Recent completed waits for a tile (real sparkline); [] if unavailable.
     func recentWaits(for routeStopId: String) async -> [Int] {
         (try? await dataSource.recentWaits(routeStopId: routeStopId)) ?? []
+    }
+
+    /// Live LTA arrivals for a tile's services; [] for cross-border/unmapped/error.
+    func arrivals(for tile: RouteTile) async -> [BusArrival] {
+        guard !tile.crossBorder, let code = tile.ltaStopCode else { return [] }
+        return (try? await dataSource.busArrivals(stopCode: code, services: tile.lines)) ?? []
     }
 
     /// Tiles for any location (for the Stats picker, which is independent of Live).
@@ -228,7 +307,12 @@ final class AppModel {
         let id = selectedLocationId
         Task { [weak self] in
             guard let self else { return }
-            do { try await self.loadTiles(for: id) }
+            do {
+                try await self.loadTiles(for: id)
+                // Tiles for the new selection are in now — fetch their next-bus
+                // times immediately instead of waiting for the next minute tick.
+                if self.selectedLocationId == id { await self.refreshNextBus() }
+            }
             catch { self.loadError = error.localizedDescription }
         }
     }
@@ -306,6 +390,7 @@ final class AppModel {
         stopTimer()
         active = nil
         elapsed = 0
+        queueStartedAt = nil
         minimized = false
         queueOrigin = nil
         sessionId = nil
@@ -317,11 +402,13 @@ final class AppModel {
 
     private func startTimer() {
         stopTimer()
+        queueStartedAt = Date()
+        elapsed = 0
         timerTask = Task { [weak self] in
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(1))
                 guard let self, self.active != nil else { return }
-                self.elapsed += 1
+                self.syncElapsed()
             }
         }
     }
@@ -329,6 +416,13 @@ final class AppModel {
     private func stopTimer() {
         timerTask?.cancel()
         timerTask = nil
+    }
+
+    /// Recompute elapsed from the wall-clock start. Called every tick and on
+    /// foreground return, so time backgrounded is counted correctly.
+    func syncElapsed() {
+        guard active != nil, let start = queueStartedAt else { return }
+        elapsed = max(0, Int(Date().timeIntervalSince(start)))
     }
 
     // MARK: - Auth

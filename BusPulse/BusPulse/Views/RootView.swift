@@ -11,6 +11,7 @@ import SwiftUI
 struct RootView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.theme) private var theme
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         ZStack {
@@ -38,6 +39,11 @@ struct RootView: View {
             }
         }
         .animation(.easeInOut(duration: 0.28), value: model.flow)
+        // Coming back from the background, the tick loop was frozen — resync the
+        // queue timer to wall-clock time so it reflects the time spent away.
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active { model.syncElapsed() }
+        }
     }
 
     // MARK: - Tabbed content (Live / Stats / Profile / Settings)

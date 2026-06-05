@@ -65,6 +65,9 @@ struct LiveView: View {
             .background(theme.bg)
         }
         .background(theme.bg)
+        // Fetch next-bus times right away when Live appears (cold launch / tab
+        // return) so tiles don't sit on "Checking…" until the next minute tick.
+        .task { await model.refreshNextBus() }
     }
 
     // MARK: Header
@@ -199,9 +202,20 @@ private struct RouteTileRow: View {
                                 .foregroundStyle(theme.muted)
                         }
                     }
-                    Text("\(Strings.t("nextBus", model.language)) \(tile.next)m")
-                        .font(AppFont.body(12))
-                        .foregroundStyle(theme.muted)
+                    let _ = model.ltaTick       // observe so the row re-renders each LTA refresh
+                    if !tile.crossBorder, tile.ltaStopCode != nil {
+                        if let nextMin = model.ltaNextBus[tile.id] {
+                            Text(nextMin <= 0
+                                 ? "\(Strings.t("nextBus", model.language)) arriving"
+                                 : "\(Strings.t("nextBus", model.language)) \(nextMin)m")
+                                .font(AppFont.body(12))
+                                .foregroundStyle(theme.muted)
+                        } else if model.ltaFetchedAt[tile.id] == nil {
+                            Text("Checking…")
+                                .font(AppFont.body(12))
+                                .foregroundStyle(theme.faint)
+                        }
+                    }
                     Text(tile.isTypical
                          ? "Typical for this time"
                          : "\(tile.activeCount) timing now · updated \(tile.freshLabel)")

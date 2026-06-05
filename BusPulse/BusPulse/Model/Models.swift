@@ -87,18 +87,26 @@ struct RouteTile: Identifiable, Hashable {
     let estimate: Int       // central estimate (max of weighted median, censored floor)
     let confidence: String  // "High" | "Good" | "Building"
     let activeCount: Int    // people currently queuing this tile ("timing now")
+    /// LTA DataMall BusStopCode for live arrivals; nil for cross-border/unmapped.
+    let ltaStopCode: String?
 
     init(id: String, badge: String, lines: [String], colorHex: String, op: String,
          to: String, low: Int, high: Int, crowd: CrowdLevel, next: Int,
          reports: Int, fresh: Int,
-         estimate: Int? = nil, confidence: String? = nil, activeCount: Int? = nil) {
+         estimate: Int? = nil, confidence: String? = nil, activeCount: Int? = nil,
+         ltaStopCode: String? = nil) {
         self.id = id; self.badge = badge; self.lines = lines; self.colorHex = colorHex
         self.op = op; self.to = to; self.low = low; self.high = high; self.crowd = crowd
         self.next = next; self.reports = reports; self.fresh = fresh
         self.estimate = estimate ?? Int((Double(low + high) / 2).rounded())
         self.confidence = confidence ?? (reports >= 12 ? "High" : reports >= 7 ? "Good" : "Building")
         self.activeCount = activeCount ?? max(1, min(4, Int((Double(reports) / 6).rounded())))
+        self.ltaStopCode = ltaStopCode
     }
+
+    /// Cross-border private operators (Causeway Link / Causeway Express) aren't
+    /// in LTA DataMall — the route page shows a "not available" note for these.
+    var crossBorder: Bool { badge == "CW" || badge == "AC7" }
 
     var color: Color { Color(hex: colorHex) }
 
@@ -124,6 +132,42 @@ struct RouteTile: Identifiable, Hashable {
 
     /// The tile bundles multiple route numbers (e.g. SBS family) — show the chip list.
     var showsRoutes: Bool { lines.count > 1 || lines.first != badge }
+}
+
+// MARK: - Live bus arrivals (LTA DataMall)
+
+/// Crowding of an arriving bus, mapped from LTA's Load codes.
+enum BusLoad: String {
+    case low, med, high, unknown
+
+    var color: Color {
+        switch self {
+        case .low:     Palette.green
+        case .med:     Palette.orange
+        case .high:    Palette.red
+        case .unknown: Palette.blue
+        }
+    }
+}
+
+/// One predicted arrival: minutes from now (nil = no estimate) + crowding.
+struct ArrivalEta: Identifiable {
+    let id = UUID()
+    let minutes: Int?
+    let load: BusLoad
+
+    /// "Arr" when imminent, "Nm" otherwise, "—" when there's no estimate.
+    var label: String {
+        guard let m = minutes else { return "—" }
+        return m <= 1 ? "Arr" : "\(m)m"
+    }
+}
+
+/// Next arrivals for a single service number at a stop (up to 3).
+struct BusArrival: Identifiable {
+    var id: String { service }
+    let service: String
+    let etas: [ArrivalEta]
 }
 
 // MARK: - Recent trip (profile)

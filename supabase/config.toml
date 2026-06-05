@@ -385,6 +385,14 @@ deno_version = 2
 # [edge_runtime.secrets]
 # secret_key = "env(SECRET_VALUE)"
 
+[functions.bus-arrivals]
+# Proxies LTA DataMall Bus Arrival v3; keeps LTA_ACCOUNT_KEY server-side.
+verify_jwt = true
+
+[functions.refresh-arrivals]
+# Internal cron poller; guarded by x-cron-secret instead of a JWT.
+verify_jwt = false
+
 [analytics]
 enabled = true
 port = 54327
